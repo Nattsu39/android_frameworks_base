@@ -28,10 +28,9 @@ public class BrightnessUtils {
     private static final boolean sHasNitsCalibration =
             "NX809J".equals(SystemProperties.get("ro.product.device"));
 
-    // Keep the tested linear mode as the NX809J default; the existing switch still overrides it.
+    // Enable calibrated brightness by default; the existing switch can select linear mode.
     public static final boolean sDisableGammaConversion =
-            SystemProperties.getBoolean("sys.brightness.disable_gamma_conversion",
-                    sHasNitsCalibration);
+            SystemProperties.getBoolean("sys.brightness.disable_gamma_conversion", false);
 
     public static final int GAMMA_SPACE_MIN = 0;
     public static final int GAMMA_SPACE_MAX = 65535;

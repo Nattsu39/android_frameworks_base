@@ -32,7 +32,7 @@ def main() -> None:
     cases = [
         ("nits", "NX809J", "false", "local:4630947168392018835"),
         ("linear", "NX809J", "true", "local:4630947168392018835"),
-        ("linear", "NX809J", None, "local:4630947168392018835"),
+        ("nits", "NX809J", None, "local:4630947168392018835"),
         ("hlg", "another-device", None, "local:4630947168392018835"),
         ("hlg", "NX809J", "false", "local:another-panel"),
     ]

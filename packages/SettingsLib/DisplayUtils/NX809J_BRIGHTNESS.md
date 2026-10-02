@@ -20,8 +20,8 @@ SystemUI's legacy controller and newer interactor both pass their display ID.
 Existing three-argument float calls use the default display. Other displays and
 legacy integer brightness conversions retain the existing HLG path.
 
-The NX809J default remains linear backlight, matching the tested gamma-disabled
-mode. The existing property selects either mode:
+The NX809J default is HLG in calibrated nits (gamma enabled). The existing
+property can override the default:
 
 | `sys.brightness.disable_gamma_conversion` | Mode |
 | --- | --- |
@@ -30,8 +30,8 @@ mode. The existing property selects either mode:
 
 The property is read when the process initializes. Restart SystemUI after changing
 it. This property does not persist across a phone reboot; NX809J then defaults to
-linear mode. This change does not add a settings toggle or modify automatic lux
-mapping, panel drivers, or vendor display configuration.
+the calibrated perceptual curve. This change does not add a settings toggle or
+modify automatic lux mapping, panel drivers, or vendor display configuration.
 
 ## Calibration provenance
 
