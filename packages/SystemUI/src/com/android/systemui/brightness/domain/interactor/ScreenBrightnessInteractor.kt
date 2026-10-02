@@ -16,6 +16,7 @@
 
 package com.android.systemui.brightness.domain.interactor
 
+import android.view.Display
 import com.android.settingslib.display.BrightnessUtils
 import com.android.systemui.brightness.data.repository.ScreenBrightnessRepository
 import com.android.systemui.brightness.shared.model.BrightnessLog
@@ -24,6 +25,7 @@ import com.android.systemui.brightness.shared.model.LinearBrightness
 import com.android.systemui.brightness.shared.model.logDiffForTable
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
+import com.android.systemui.dagger.qualifiers.DisplayId
 import com.android.systemui.log.table.TableLogBuffer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +47,7 @@ constructor(
     private val screenBrightnessRepository: ScreenBrightnessRepository,
     @Application private val applicationScope: CoroutineScope,
     @BrightnessLog private val tableBuffer: TableLogBuffer,
+    @DisplayId private val displayId: Int = Display.DEFAULT_DISPLAY,
 ) {
     /** Maximum value in the Gamma space for brightness */
     val maxGammaBrightness = GammaBrightness(BrightnessUtils.GAMMA_SPACE_MAX)
@@ -96,7 +99,8 @@ constructor(
             BrightnessUtils.convertGammaToLinearFloat(
                 value,
                 bounds.first.floatValue,
-                bounds.second.floatValue
+                bounds.second.floatValue,
+                displayId,
             )
         )
     }
@@ -110,7 +114,9 @@ constructor(
         max: LinearBrightness,
     ): GammaBrightness {
         return GammaBrightness(
-            BrightnessUtils.convertLinearToGammaFloat(floatValue, min.floatValue, max.floatValue)
+            BrightnessUtils.convertLinearToGammaFloat(
+                floatValue, min.floatValue, max.floatValue, displayId
+            )
         )
     }
 

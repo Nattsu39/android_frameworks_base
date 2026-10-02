@@ -378,7 +378,7 @@ public class BrightnessController implements ToggleSlider.Listener, MirroredBrig
         minBacklight = mBrightnessMin;
         maxBacklight = mBrightnessMax;
         final float valFloat = MathUtils.min(
-                convertGammaToLinearFloat(value, minBacklight, maxBacklight),
+                convertGammaToLinearFloat(value, minBacklight, maxBacklight, mDisplayId),
                 maxBacklight);
         if (stopTracking) {
             // TODO(brightnessfloat): change to use float value instead.
@@ -460,13 +460,13 @@ public class BrightnessController implements ToggleSlider.Listener, MirroredBrig
         }
         // convertGammaToLinearFloat returns 0-1
         if (BrightnessSynchronizer.floatEquals(brightnessValue,
-                convertGammaToLinearFloat(mControl.getValue(), min, max))) {
+                convertGammaToLinearFloat(mControl.getValue(), min, max, mDisplayId))) {
             // If the value in the slider is equal to the value on the current brightness
             // then the slider does not need to animate, since the brightness will not change.
             return;
         }
         // Returns GAMMA_SPACE_MIN - GAMMA_SPACE_MAX
-        final int sliderVal = convertLinearToGammaFloat(brightnessValue, min, max);
+        final int sliderVal = convertLinearToGammaFloat(brightnessValue, min, max, mDisplayId);
         animateSliderTo(sliderVal);
     }
 

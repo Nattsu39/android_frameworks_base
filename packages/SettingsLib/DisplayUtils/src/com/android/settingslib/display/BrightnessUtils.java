@@ -16,14 +16,22 @@
 
 package com.android.settingslib.display;
 
+import android.hardware.display.DisplayManagerGlobal;
 import android.os.SystemProperties;
 import android.util.MathUtils;
+import android.view.Display;
+import android.view.DisplayInfo;
 
 /** Utility methods for calculating the display brightness. */
 public class BrightnessUtils {
 
+    private static final boolean sHasNitsCalibration =
+            "NX809J".equals(SystemProperties.get("ro.product.device"));
+
+    // Keep the tested linear mode as the NX809J default; the existing switch still overrides it.
     public static final boolean sDisableGammaConversion =
-            SystemProperties.getBoolean("sys.brightness.disable_gamma_conversion", false);
+            SystemProperties.getBoolean("sys.brightness.disable_gamma_conversion",
+                    sHasNitsCalibration);
 
     public static final int GAMMA_SPACE_MIN = 0;
     public static final int GAMMA_SPACE_MAX = 65535;
@@ -85,6 +93,11 @@ public class BrightnessUtils {
      * @return The corresponding setting value.
      */
     public static final float convertGammaToLinearFloat(int val, float min, float max) {
+        return convertGammaToLinearFloat(val, min, max, Display.DEFAULT_DISPLAY);
+    }
+
+    /** Converts a slider value using the calibration of the specified display, when available. */
+    public static float convertGammaToLinearFloat(int val, float min, float max, int displayId) {
         final float normalizedVal = MathUtils.norm(GAMMA_SPACE_MIN, GAMMA_SPACE_MAX, val);
 
         if (sDisableGammaConversion) {
@@ -102,8 +115,20 @@ public class BrightnessUtils {
         // it shouldn't be out of bounds.
         final float normalizedRet = MathUtils.constrain(ret, 0, 12);
 
-        // Re-normalize to the range [0, 1]
-        // in order to derive the correct setting value.
+        // The OEM backlight control is nonlinear. Apply HLG to calibrated nits instead.
+        if (hasNitsCalibration(displayId, min, max)) {
+            if (val <= GAMMA_SPACE_MIN) {
+                return min;
+            }
+            if (val >= GAMMA_SPACE_MAX) {
+                return max;
+            }
+            final float targetNits = MathUtils.lerp(NitsBrightnessCurve.toNits(min),
+                    NitsBrightnessCurve.toNits(max), normalizedRet / 12);
+            return MathUtils.constrain(NitsBrightnessCurve.toBacklight(targetNits), min, max);
+        }
+
+        // Re-normalize to the range [0, 1] for displays with a linear backlight control.
         return MathUtils.lerp(min, max, normalizedRet / 12);
     }
 
@@ -130,7 +155,9 @@ public class BrightnessUtils {
      * @return The corresponding slider value
      */
     public static final int convertLinearToGamma(int val, int min, int max) {
-        return convertLinearToGammaFloat((float) val, (float) min, (float) max);
+        // Legacy integer brightness is not in the normalized backlight domain.
+        return convertLinearToGammaFloat((float) val, (float) min, (float) max,
+                Display.INVALID_DISPLAY);
     }
 
     /**
@@ -142,13 +169,30 @@ public class BrightnessUtils {
      * @return The corresponding slider value
      */
     public static final int convertLinearToGammaFloat(float val, float min, float max) {
+        return convertLinearToGammaFloat(val, min, max, Display.DEFAULT_DISPLAY);
+    }
+
+    /** Inverse of the display-aware float conversion, using the same dynamic bounds. */
+    public static int convertLinearToGammaFloat(float val, float min, float max, int displayId) {
         if (sDisableGammaConversion) {
             final float normalizedVal = MathUtils.norm(min, max, val);
             return Math.round(MathUtils.lerp(GAMMA_SPACE_MIN, GAMMA_SPACE_MAX, normalizedVal));
         }
 
-        // For some reason, HLG normalizes to the range [0, 12] rather than [0, 1]
-        final float normalizedVal = MathUtils.norm(min, max, val) * 12;
+        final float normalizedVal;
+        if (hasNitsCalibration(displayId, min, max)) {
+            if (val <= min) {
+                return GAMMA_SPACE_MIN;
+            }
+            if (val >= max) {
+                return GAMMA_SPACE_MAX;
+            }
+            final float clamped = MathUtils.constrain(val, min, max);
+            normalizedVal = MathUtils.norm(NitsBrightnessCurve.toNits(min),
+                    NitsBrightnessCurve.toNits(max), NitsBrightnessCurve.toNits(clamped)) * 12;
+        } else {
+            normalizedVal = MathUtils.norm(min, max, val) * 12;
+        }
         final float ret;
         if (normalizedVal <= 1f) {
             ret = MathUtils.sqrt(normalizedVal) * R;
@@ -157,5 +201,15 @@ public class BrightnessUtils {
         }
 
         return Math.round(MathUtils.lerp(GAMMA_SPACE_MIN, GAMMA_SPACE_MAX, ret));
+    }
+
+    private static boolean hasNitsCalibration(int displayId, float min, float max) {
+        if (!sHasNitsCalibration || displayId == Display.INVALID_DISPLAY
+                || !Float.isFinite(min) || !Float.isFinite(max)
+                || min < 0 || max > 1 || min >= max) {
+            return false;
+        }
+        final DisplayInfo info = DisplayManagerGlobal.getInstance().getDisplayInfo(displayId);
+        return info != null && NitsBrightnessCurve.DISPLAY_UNIQUE_ID.equals(info.uniqueId);
     }
 }
