@@ -48,6 +48,7 @@ import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.flags.FeatureFlagsClassic
 import com.android.systemui.flags.Flags.ROAMING_INDICATOR_VIA_DISPLAY_INFO
 import com.android.systemui.log.table.TableLogBuffer
+import com.android.systemui.statusbar.connectivity.MobileSignalStrength
 import com.android.systemui.statusbar.pipeline.mobile.data.MobileInputLogger
 import com.android.systemui.statusbar.pipeline.mobile.data.model.DataConnectionState.Disconnected
 import com.android.systemui.statusbar.pipeline.mobile.data.model.NetworkNameModel
@@ -108,6 +109,8 @@ class MobileConnectionRepositoryImpl(
     flags: FeatureFlagsClassic,
     scope: CoroutineScope,
 ) : MobileConnectionRepository {
+    private val mobileSignalStrength = MobileSignalStrength(context.resources)
+
     init {
         if (telephonyManager.subscriptionId != subId) {
             throw IllegalStateException(
@@ -262,7 +265,7 @@ class MobileConnectionRepositoryImpl(
                 it.signalStrength.getCellSignalStrengths(CellSignalStrengthCdma::class.java).let {
                     strengths ->
                     if (strengths.isNotEmpty()) {
-                        strengths[0].level
+                        mobileSignalStrength.scaleLevel(strengths[0].level)
                     } else {
                         SIGNAL_STRENGTH_NONE_OR_UNKNOWN
                     }
@@ -273,7 +276,7 @@ class MobileConnectionRepositoryImpl(
     override val primaryLevel =
         callbackEvents
             .mapNotNull { it.onSignalStrengthChanged }
-            .map { it.signalStrength.level }
+            .map { mobileSignalStrength.getLevel(it.signalStrength) }
             .stateIn(scope, SharingStarted.WhileSubscribed(), SIGNAL_STRENGTH_NONE_OR_UNKNOWN)
 
     override val satelliteLevel: StateFlow<Int> =
@@ -324,10 +327,13 @@ class MobileConnectionRepositoryImpl(
             }
             .stateIn(scope, SharingStarted.WhileSubscribed(), UnknownNetworkType)
 
-    override val inflateSignalStrength = systemUiCarrierConfig.shouldInflateSignalStrength
+    override val inflateSignalStrength =
+        if (mobileSignalStrength.isEnabled) MutableStateFlow(false).asStateFlow()
+        else systemUiCarrierConfig.shouldInflateSignalStrength
     override val allowNetworkSliceIndicator = systemUiCarrierConfig.allowNetworkSliceIndicator
 
-    override val numberOfLevels = createNumberOfLevelsFlow(scope, inflateSignalStrength)
+    override val numberOfLevels =
+        createNumberOfLevelsFlow(scope, inflateSignalStrength, mobileSignalStrength.numLevels)
 
     override val carrierName =
         subscriptionModel

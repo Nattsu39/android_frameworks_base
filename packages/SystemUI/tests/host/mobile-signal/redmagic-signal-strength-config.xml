@@ -1,0 +1,11 @@
+<document>
+  <signalstrengthconfig operator="ZTE_STANDARD" maxlevel="5" minlevel="0">
+    <signalstrength signalstrengthtype="rssi" type="GSM" value="89,95,101,105,110,1000" />
+    <signalstrength signalstrengthtype="rscp" type="WCDMA" value="89,95,101,105,110,1000" />
+    <signalstrength signalstrengthtype="rsrp" type="LTE" value="-97,-105,-114,-118,-123,-1000" />
+    <signalstrength signalstrengthtype="ssrsrp" type="NR" value="-97,-105,-114,-118,-123,-1000" />
+    <signalstrength signalstrengthtype="cdmadbm" type="CDMA" value="-84,-90,-95,-100,-105,-1000" />
+    <signalstrength signalstrengthtype="evdodbm" type="EVDO" value="-84,-90,-95,-100,-105,-1000" />
+    <signalstrength signalstrengthtype="tdscdmarscp" type="TDSCDMA" value="-84,-92,-98,-104,-110,-1000" />
+  </signalstrengthconfig>
+</document>

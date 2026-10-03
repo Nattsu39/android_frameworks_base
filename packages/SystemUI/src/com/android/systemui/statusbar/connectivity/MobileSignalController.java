@@ -35,6 +35,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.settingslib.AccessibilityContentDescriptions;
 import com.android.settingslib.SignalIcon.MobileIconGroup;
 import com.android.settingslib.graph.SignalDrawable;
 import com.android.settingslib.mobile.MobileMappings.Config;
@@ -64,6 +65,7 @@ public class MobileSignalController extends SignalController<MobileState, Mobile
     private static final SimpleDateFormat SSDF = new SimpleDateFormat("MM-dd HH:mm:ss.SSS");
     private static final int STATUS_HISTORY_SIZE = 64;
     private final TelephonyManager mPhone;
+    private final MobileSignalStrength mSignalStrength;
     private final CarrierConfigTracker mCarrierConfigTracker;
     private final SubscriptionDefaults mDefaults;
     private final MobileMappingsProxy mMobileMappingsProxy;
@@ -138,6 +140,7 @@ public class MobileSignalController extends SignalController<MobileState, Mobile
         mCarrierConfigTracker = carrierConfigTracker;
         mConfig = config;
         mPhone = phone;
+        mSignalStrength = new MobileSignalStrength(context.getResources());
         mDefaults = defaults;
         mSubscriptionInfo = info;
         mMobileMappingsProxy = mobileMappingsProxy;
@@ -217,15 +220,28 @@ public class MobileSignalController extends SignalController<MobileState, Mobile
     }
 
     private void updateInflateSignalStrength() {
-        mInflateSignalStrengths = SignalStrengthUtil.shouldInflateSignalStrength(mContext,
+        mInflateSignalStrengths = !mSignalStrength.isEnabled()
+                && SignalStrengthUtil.shouldInflateSignalStrength(mContext,
                 mSubscriptionInfo.getSubscriptionId());
     }
 
     private int getNumLevels() {
+        if (mSignalStrength.isEnabled()) {
+            return mSignalStrength.getNumLevels();
+        }
         if (mInflateSignalStrengths) {
             return CellSignalStrength.getNumSignalStrengthLevels() + 1;
         }
         return CellSignalStrength.getNumSignalStrengthLevels();
+    }
+
+    @Override
+    public int getContentDescription() {
+        if (mSignalStrength.isEnabled() && mCurrentState.connected) {
+            return AccessibilityContentDescriptions.getDescriptionForLevel(
+                    mCurrentState.level, mSignalStrength.getNumLevels());
+        }
+        return super.getContentDescription();
     }
 
     @Override
@@ -464,9 +480,9 @@ public class MobileSignalController extends SignalController<MobileState, Mobile
             return 0;
         }
         if (!signalStrength.isGsm() && mConfig.alwaysShowCdmaRssi) {
-            return getCdmaLevel(signalStrength);
+            return mSignalStrength.scaleLevel(getCdmaLevel(signalStrength));
         } else {
-            return signalStrength.getLevel();
+            return mSignalStrength.getLevel(signalStrength);
         }
     }
 

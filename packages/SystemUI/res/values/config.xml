@@ -1186,4 +1186,7 @@
 
     <!-- Indicates whether the tapping to open qs panel is supported -->
     <bool name="config_statusBarTapToExpandShade">false</bool>
+    <!-- Optional five-bar LTE/NR display curve. Strongest first; values use
+         strict RSRP > threshold comparison. Empty keeps standard signal levels. -->
+    <integer-array name="config_mobileSignalStrengthRsrpThresholds" />
 </resources>

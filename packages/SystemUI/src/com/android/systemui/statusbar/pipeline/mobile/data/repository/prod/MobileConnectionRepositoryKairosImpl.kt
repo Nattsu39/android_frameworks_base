@@ -62,6 +62,7 @@ import com.android.systemui.kairos.transactionally
 import com.android.systemui.kairos.util.nameTag
 import com.android.systemui.kairosBuilder
 import com.android.systemui.log.table.TableLogBuffer
+import com.android.systemui.statusbar.connectivity.MobileSignalStrength
 import com.android.systemui.statusbar.pipeline.mobile.data.MobileInputLogger
 import com.android.systemui.statusbar.pipeline.mobile.data.model.DataConnectionState
 import com.android.systemui.statusbar.pipeline.mobile.data.model.DataConnectionState.Disconnected
@@ -74,7 +75,6 @@ import com.android.systemui.statusbar.pipeline.mobile.data.model.SubscriptionMod
 import com.android.systemui.statusbar.pipeline.mobile.data.model.SystemUiCarrierConfig
 import com.android.systemui.statusbar.pipeline.mobile.data.model.toDataConnectionType
 import com.android.systemui.statusbar.pipeline.mobile.data.model.toNetworkNameModel
-import com.android.systemui.statusbar.pipeline.mobile.data.repository.MobileConnectionRepository.Companion.DEFAULT_NUM_LEVELS
 import com.android.systemui.statusbar.pipeline.mobile.data.repository.MobileConnectionRepositoryKairos
 import com.android.systemui.statusbar.pipeline.mobile.util.MobileMappingsProxy
 import com.android.systemui.statusbar.pipeline.shared.data.model.DataActivityModel
@@ -114,6 +114,8 @@ constructor(
     @Assisted override val tableLogBuffer: TableLogBuffer,
     flags: FeatureFlagsClassic,
 ) : MobileConnectionRepositoryKairos, KairosBuilder by kairosBuilder() {
+
+    private val mobileSignalStrength = MobileSignalStrength(context.resources)
 
     init {
         if (telephonyManager.subscriptionId != subId) {
@@ -283,12 +285,14 @@ constructor(
 
     override val cdmaLevel: State<Int> =
         signalStrength.map {
-            it?.getCellSignalStrengths(CellSignalStrengthCdma::class.java)?.firstOrNull()?.level
-                ?: SIGNAL_STRENGTH_NONE_OR_UNKNOWN
+            mobileSignalStrength.scaleLevel(
+                it?.getCellSignalStrengths(CellSignalStrengthCdma::class.java)?.firstOrNull()?.level
+                    ?: SIGNAL_STRENGTH_NONE_OR_UNKNOWN
+            )
         }
 
     override val primaryLevel: State<Int> =
-        signalStrength.map { it?.level ?: SIGNAL_STRENGTH_NONE_OR_UNKNOWN }
+        signalStrength.map { mobileSignalStrength.getLevel(it) }
 
     override val satelliteLevel: State<Int> = buildState {
         callbackEvents
@@ -343,9 +347,13 @@ constructor(
         }
 
     override val inflateSignalStrength: State<Boolean> = buildState {
-        systemUiCarrierConfig.shouldInflateSignalStrength.toState(
-            nameTag("MobileConnectionRepositoryKairosImpl.inflateSignalStrength")
-        )
+        if (mobileSignalStrength.isEnabled) {
+            stateOf(false)
+        } else {
+            systemUiCarrierConfig.shouldInflateSignalStrength.toState(
+                nameTag("MobileConnectionRepositoryKairosImpl.inflateSignalStrength")
+            )
+        }
     }
 
     override val allowNetworkSliceIndicator: State<Boolean> = buildState {
@@ -357,9 +365,9 @@ constructor(
     override val numberOfLevels: State<Int> =
         inflateSignalStrength.map { shouldInflate ->
             if (shouldInflate) {
-                DEFAULT_NUM_LEVELS + 1
+                mobileSignalStrength.numLevels + 1
             } else {
-                DEFAULT_NUM_LEVELS
+                mobileSignalStrength.numLevels
             }
         }
 

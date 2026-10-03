@@ -93,6 +93,7 @@ import com.android.systemui.res.R;
 import com.android.systemui.shade.ShadeDisplayAware;
 import com.android.systemui.shade.domain.interactor.ShadeDialogContextInteractor;
 import com.android.systemui.statusbar.connectivity.AccessPointController;
+import com.android.systemui.statusbar.connectivity.MobileSignalStrength;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.LocationController;
 import com.android.systemui.toast.SystemUIToast;
@@ -182,6 +183,7 @@ public class InternetDetailsContentController implements AccessPointController.A
     @Nullable
     private SatelliteManager mSatelliteManager;
     private Context mContext;
+    private final MobileSignalStrength mMobileSignalStrength;
     private SubscriptionManager mSubscriptionManager;
     private TelephonyManager mTelephonyManager;
     private ConnectivityManager mConnectivityManager;
@@ -306,6 +308,7 @@ public class InternetDetailsContentController implements AccessPointController.A
         mWorkerHandler = workerHandler;
         mExecutor = mainExecutor;
         mContext = context;
+        mMobileSignalStrength = new MobileSignalStrength(context.getResources());
         mGlobalSettings = globalSettings;
         mWifiManager = wifiManager;
         mTelephonyManager = telephonyManager;
@@ -603,8 +606,8 @@ public class InternetDetailsContentController implements AccessPointController.A
     Drawable getSignalStrengthDrawableWithLevel(boolean isCarrierNetworkActive, int subId) {
         TelephonyManager tm = mSubIdTelephonyManagerMap.getOrDefault(subId, mTelephonyManager);
         final SignalStrength strength = tm.getSignalStrength();
-        int level = (strength == null) ? 0 : strength.getLevel();
-        int numLevels = SignalStrength.NUM_SIGNAL_STRENGTH_BINS;
+        int level = mMobileSignalStrength.getLevel(strength);
+        int numLevels = mMobileSignalStrength.getNumLevels();
         if (isCarrierNetworkActive) {
             level = getCarrierNetworkLevel();
             numLevels = WifiEntry.WIFI_LEVEL_MAX + 1;
@@ -612,7 +615,8 @@ public class InternetDetailsContentController implements AccessPointController.A
                 level += 1;
                 numLevels += 1;
             }
-        } else if (mSubscriptionManager != null && shouldInflateSignalStrength(subId)) {
+        } else if (!mMobileSignalStrength.isEnabled()
+                && mSubscriptionManager != null && shouldInflateSignalStrength(subId)) {
             level += 1;
             numLevels += 1;
         }
