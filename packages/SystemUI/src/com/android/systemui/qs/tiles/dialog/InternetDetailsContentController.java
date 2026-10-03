@@ -607,7 +607,7 @@ public class InternetDetailsContentController implements AccessPointController.A
         TelephonyManager tm = mSubIdTelephonyManagerMap.getOrDefault(subId, mTelephonyManager);
         final SignalStrength strength = tm.getSignalStrength();
         int level = mMobileSignalStrength.getLevel(strength);
-        int numLevels = mMobileSignalStrength.getNumLevels();
+        int numLevels = SignalStrength.NUM_SIGNAL_STRENGTH_BINS;
         if (isCarrierNetworkActive) {
             level = getCarrierNetworkLevel();
             numLevels = WifiEntry.WIFI_LEVEL_MAX + 1;
@@ -615,8 +615,7 @@ public class InternetDetailsContentController implements AccessPointController.A
                 level += 1;
                 numLevels += 1;
             }
-        } else if (!mMobileSignalStrength.isEnabled()
-                && mSubscriptionManager != null && shouldInflateSignalStrength(subId)) {
+        } else if (mSubscriptionManager != null && shouldInflateSignalStrength(subId)) {
             level += 1;
             numLevels += 1;
         }

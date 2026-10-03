@@ -74,7 +74,7 @@ public class MobileSignalStrengthHostTest {
     private static int reference(int rsrp, int[] curve) {
         if (rsrp < -156 || rsrp > -31) return 0;
         for (int i = 0; i < curve.length; i++) {
-            if (rsrp > curve[i]) return 5 - i;
+            if (rsrp > curve[i]) return Math.round((5 - i) * 4.0f / 5.0f);
         }
         return 0;
     }
@@ -82,7 +82,6 @@ public class MobileSignalStrengthHostTest {
         int[] stock = Arrays.stream(args[0].split(",")).mapToInt(Integer::parseInt).toArray();
         int[] device = Arrays.stream(args[1].split(",")).mapToInt(Integer::parseInt).toArray();
         MobileSignalStrength custom = new MobileSignalStrength(device);
-        equal(6, custom.getNumLevels(), "five bars plus zero");
         equal(0, custom.getLevel(null), "missing report");
         for (int rsrp = -170; rsrp <= -20; rsrp++) {
             equal(reference(rsrp, stock),
@@ -94,28 +93,29 @@ public class MobileSignalStrengthHostTest {
                         "LTE RSRP=" + rsrp);
             }
         }
-        equal(3, custom.getLevel(new SignalStrength(1, -80, -106, true, true, false)),
+        equal(2, custom.getLevel(new SignalStrength(1, -80, -106, true, true, false)),
                 "NR primary retains -106 despite stronger LTE");
-        equal(5, custom.getLevel(new SignalStrength(1, -80, -106, true, true, true)),
+        equal(4, custom.getLevel(new SignalStrength(1, -80, -106, true, true, true)),
                 "NSA LTE-primary policy retains -80");
         equal(0, custom.getLevel(new SignalStrength(0, 0, Integer.MAX_VALUE,
                 false, true, false)), "unavailable NR must not look full");
         for (int level = 0; level <= 4; level++) {
-            int expected = new int[] {0, 1, 3, 4, 5}[level];
-            equal(expected, custom.getLevel(new SignalStrength(level, -90, -90,
-                    false, false, false)), "other RAT retains relative standard level");
+            equal(level, custom.getLevel(new SignalStrength(level, -90, -90,
+                    false, false, false)), "other RAT retains its original level");
             MobileSignalStrength standard = new MobileSignalStrength(new int[0]);
             equal(level, standard.getLevel(new SignalStrength(level, -90, -90,
                     true, true, false)), "empty resource preserves standard level");
-            equal(5, standard.getNumLevels(), "empty resource preserves four bars");
         }
-        for (int[] invalid : new int[][] { {-97}, {-97, -105, -114, -118},
-                {-123, -118, -114, -105, -97}, {-97, -105, -105, -118, -123},
-                {-20, -105, -114, -118, -123} }) {
-            equal(5, new MobileSignalStrength(invalid).getNumLevels(), "invalid resource disabled");
+        for (int[] invalid : new int[][] { {-97}, {-97, -105, -118},
+                {-97, -105, -114, -118, -123}, {-123, -118, -105, -97},
+                {-97, -105, -105, -123}, {-20, -105, -118, -123},
+                {-97, -105, -118, -157} }) {
+            equal(1, new MobileSignalStrength(invalid).getLevel(
+                    new SignalStrength(1, -80, -80, true, false, true)),
+                    "invalid resource preserves the framework level");
         }
         device[0] = -50;
-        equal(5, custom.getLevel(new SignalStrength(4, -80, -80, true, false, true)),
+        equal(4, custom.getLevel(new SignalStrength(4, -80, -80, true, false, true)),
                 "caller mutation cannot change curve");
         System.out.println("PASS: " + assertions + " OEM differential and primary-RAT assertions");
     }

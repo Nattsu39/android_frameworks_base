@@ -35,7 +35,6 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.settingslib.AccessibilityContentDescriptions;
 import com.android.settingslib.SignalIcon.MobileIconGroup;
 import com.android.settingslib.graph.SignalDrawable;
 import com.android.settingslib.mobile.MobileMappings.Config;
@@ -220,28 +219,15 @@ public class MobileSignalController extends SignalController<MobileState, Mobile
     }
 
     private void updateInflateSignalStrength() {
-        mInflateSignalStrengths = !mSignalStrength.isEnabled()
-                && SignalStrengthUtil.shouldInflateSignalStrength(mContext,
+        mInflateSignalStrengths = SignalStrengthUtil.shouldInflateSignalStrength(mContext,
                 mSubscriptionInfo.getSubscriptionId());
     }
 
     private int getNumLevels() {
-        if (mSignalStrength.isEnabled()) {
-            return mSignalStrength.getNumLevels();
-        }
         if (mInflateSignalStrengths) {
             return CellSignalStrength.getNumSignalStrengthLevels() + 1;
         }
         return CellSignalStrength.getNumSignalStrengthLevels();
-    }
-
-    @Override
-    public int getContentDescription() {
-        if (mSignalStrength.isEnabled() && mCurrentState.connected) {
-            return AccessibilityContentDescriptions.getDescriptionForLevel(
-                    mCurrentState.level, mSignalStrength.getNumLevels());
-        }
-        return super.getContentDescription();
     }
 
     @Override
@@ -480,7 +466,7 @@ public class MobileSignalController extends SignalController<MobileState, Mobile
             return 0;
         }
         if (!signalStrength.isGsm() && mConfig.alwaysShowCdmaRssi) {
-            return mSignalStrength.scaleLevel(getCdmaLevel(signalStrength));
+            return getCdmaLevel(signalStrength);
         } else {
             return mSignalStrength.getLevel(signalStrength);
         }

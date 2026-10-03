@@ -265,7 +265,7 @@ class MobileConnectionRepositoryImpl(
                 it.signalStrength.getCellSignalStrengths(CellSignalStrengthCdma::class.java).let {
                     strengths ->
                     if (strengths.isNotEmpty()) {
-                        mobileSignalStrength.scaleLevel(strengths[0].level)
+                        strengths[0].level
                     } else {
                         SIGNAL_STRENGTH_NONE_OR_UNKNOWN
                     }
@@ -327,13 +327,10 @@ class MobileConnectionRepositoryImpl(
             }
             .stateIn(scope, SharingStarted.WhileSubscribed(), UnknownNetworkType)
 
-    override val inflateSignalStrength =
-        if (mobileSignalStrength.isEnabled) MutableStateFlow(false).asStateFlow()
-        else systemUiCarrierConfig.shouldInflateSignalStrength
+    override val inflateSignalStrength = systemUiCarrierConfig.shouldInflateSignalStrength
     override val allowNetworkSliceIndicator = systemUiCarrierConfig.allowNetworkSliceIndicator
 
-    override val numberOfLevels =
-        createNumberOfLevelsFlow(scope, inflateSignalStrength, mobileSignalStrength.numLevels)
+    override val numberOfLevels = createNumberOfLevelsFlow(scope, inflateSignalStrength)
 
     override val carrierName =
         subscriptionModel

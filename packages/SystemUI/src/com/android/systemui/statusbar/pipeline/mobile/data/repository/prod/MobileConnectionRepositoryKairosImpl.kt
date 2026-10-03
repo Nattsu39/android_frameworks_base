@@ -75,6 +75,7 @@ import com.android.systemui.statusbar.pipeline.mobile.data.model.SubscriptionMod
 import com.android.systemui.statusbar.pipeline.mobile.data.model.SystemUiCarrierConfig
 import com.android.systemui.statusbar.pipeline.mobile.data.model.toDataConnectionType
 import com.android.systemui.statusbar.pipeline.mobile.data.model.toNetworkNameModel
+import com.android.systemui.statusbar.pipeline.mobile.data.repository.MobileConnectionRepository.Companion.DEFAULT_NUM_LEVELS
 import com.android.systemui.statusbar.pipeline.mobile.data.repository.MobileConnectionRepositoryKairos
 import com.android.systemui.statusbar.pipeline.mobile.util.MobileMappingsProxy
 import com.android.systemui.statusbar.pipeline.shared.data.model.DataActivityModel
@@ -285,10 +286,8 @@ constructor(
 
     override val cdmaLevel: State<Int> =
         signalStrength.map {
-            mobileSignalStrength.scaleLevel(
-                it?.getCellSignalStrengths(CellSignalStrengthCdma::class.java)?.firstOrNull()?.level
-                    ?: SIGNAL_STRENGTH_NONE_OR_UNKNOWN
-            )
+            it?.getCellSignalStrengths(CellSignalStrengthCdma::class.java)?.firstOrNull()?.level
+                ?: SIGNAL_STRENGTH_NONE_OR_UNKNOWN
         }
 
     override val primaryLevel: State<Int> =
@@ -347,13 +346,9 @@ constructor(
         }
 
     override val inflateSignalStrength: State<Boolean> = buildState {
-        if (mobileSignalStrength.isEnabled) {
-            stateOf(false)
-        } else {
-            systemUiCarrierConfig.shouldInflateSignalStrength.toState(
-                nameTag("MobileConnectionRepositoryKairosImpl.inflateSignalStrength")
-            )
-        }
+        systemUiCarrierConfig.shouldInflateSignalStrength.toState(
+            nameTag("MobileConnectionRepositoryKairosImpl.inflateSignalStrength")
+        )
     }
 
     override val allowNetworkSliceIndicator: State<Boolean> = buildState {
@@ -365,9 +360,9 @@ constructor(
     override val numberOfLevels: State<Int> =
         inflateSignalStrength.map { shouldInflate ->
             if (shouldInflate) {
-                mobileSignalStrength.numLevels + 1
+                DEFAULT_NUM_LEVELS + 1
             } else {
-                mobileSignalStrength.numLevels
+                DEFAULT_NUM_LEVELS
             }
         }
 
