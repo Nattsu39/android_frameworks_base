@@ -1409,6 +1409,7 @@ public class DisplayModeDirector {
         private int mExternalDisplayPeakHeight;
         private int mExternalDisplayPeakRefreshRate;
         private final boolean mRefreshRateSynchronizationEnabled;
+        private final int mDozeMaxRefreshRate;
         private int mDefaultDisplayType = Display.TYPE_INTERNAL;
 
         DisplayObserver(Context context, Handler handler, VotesStorage votesStorage,
@@ -1424,6 +1425,8 @@ public class DisplayModeDirector {
                         R.integer.config_externalDisplayPeakHeight);
             mRefreshRateSynchronizationEnabled = mContext.getResources().getBoolean(
                         R.bool.config_refreshRateSynchronizationEnabled);
+            mDozeMaxRefreshRate = mContext.getResources().getInteger(
+                    R.integer.config_dozeMaxRefreshRate);
         }
 
         private boolean isExternalDisplayLimitModeEnabled() {
@@ -1437,7 +1440,11 @@ public class DisplayModeDirector {
         }
 
         public void observe() {
-            mInjector.registerDisplayListener(this, mHandler);
+            mInjector.registerDisplayListener(this, mHandler,
+                    DisplayManager.EVENT_TYPE_DISPLAY_ADDED
+                            | DisplayManager.EVENT_TYPE_DISPLAY_CHANGED
+                            | DisplayManager.EVENT_TYPE_DISPLAY_REMOVED
+                            | DisplayManager.EVENT_TYPE_DISPLAY_STATE);
             if (mDisplayManagerFlags.isOnDisplayAddedInObserverEnabled()) {
                 final var enabledDisplays = mInjector.getEnabledDisplays();
                 // Populate existing displays
@@ -1460,6 +1467,7 @@ public class DisplayModeDirector {
                     modes.put(displayId, info.supportedModes);
                     appModes.put(displayId, info.appsSupportedModes);
                     defaultModes.put(displayId, info.getDefaultMode());
+                    updateDozeRefreshRate(displayId, info);
                 }
                 DisplayDeviceConfig defaultDisplayConfig = mDisplayDeviceConfigProvider
                         .getDisplayDeviceConfig(Display.DEFAULT_DISPLAY);
@@ -1492,6 +1500,7 @@ public class DisplayModeDirector {
             updateLayoutLimitedFrameRate(displayId, displayInfo);
             updateUserSettingDisplayPreferredSize(displayInfo);
             updateDisplaysPeakRefreshRateAndResolution(displayInfo);
+            updateDozeRefreshRate(displayId, displayInfo);
         }
 
         @Override
@@ -1505,6 +1514,7 @@ public class DisplayModeDirector {
                 mHasArrSupport.delete(displayId);
             }
             updateLayoutLimitedFrameRate(displayId, null);
+            updateDozeRefreshRate(displayId, null);
             removeUserSettingDisplayPreferredSize(displayId);
             removeDisplaysPeakRefreshRateAndResolution(displayId);
             unregisterExternalDisplay(displayId);
@@ -1529,6 +1539,17 @@ public class DisplayModeDirector {
             updateDisplayModes(displayId, displayInfo);
             updateLayoutLimitedFrameRate(displayId, displayInfo);
             updateUserSettingDisplayPreferredSize(displayInfo);
+            updateDozeRefreshRate(displayId, displayInfo);
+        }
+
+        private void updateDozeRefreshRate(int displayId, @Nullable DisplayInfo info) {
+            Vote vote = null;
+            if (mDozeMaxRefreshRate > 0 && info != null
+                    && info.type == Display.TYPE_INTERNAL
+                    && Display.isDozeState(info.state)) {
+                vote = Vote.forPhysicalRefreshRates(0f, mDozeMaxRefreshRate);
+            }
+            mVotesStorage.updateVote(displayId, Vote.PRIORITY_DOZE_REFRESH_RATE, vote);
         }
 
         private void registerExternalDisplay(DisplayInfo displayInfo) {

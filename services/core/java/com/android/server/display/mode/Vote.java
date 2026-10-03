@@ -134,22 +134,26 @@ interface Vote {
     // Settings.Global.LOW_POWER_MODE is on.
     int PRIORITY_LOW_POWER_MODE_RENDER_RATE = 19;
 
+    // Limit physical refresh rate while dozing on devices that opt in. This overrides
+    // user and app requests, but active UDFPS and hardware constraints take precedence.
+    int PRIORITY_DOZE_REFRESH_RATE = 20;
+
     // PRIORITY_FLICKER_REFRESH_RATE_SWITCH votes for disabling refresh rate switching. If the
     // higher priority voters' result is a range, it will fix the rate to a single choice.
     // It's used to avoid refresh rate switches in certain conditions which may result in the
     // user seeing the display flickering when the switches occur.
-    int PRIORITY_FLICKER_REFRESH_RATE_SWITCH = 20;
+    int PRIORITY_FLICKER_REFRESH_RATE_SWITCH = 21;
 
     // Force display to [0, 60HZ] if skin temperature is at or above CRITICAL.
-    int PRIORITY_SKIN_TEMPERATURE = 21;
+    int PRIORITY_SKIN_TEMPERATURE = 22;
 
     // The proximity sensor needs the refresh rate to be locked in order to function, so this is
     // set to a high priority.
-    int PRIORITY_PROXIMITY = 22;
+    int PRIORITY_PROXIMITY = 23;
 
     // The Under-Display Fingerprint Sensor (UDFPS) needs the refresh rate to be locked in order
     // to function, so this needs to be the highest priority of all votes.
-    int PRIORITY_UDFPS = 23;
+    int PRIORITY_UDFPS = 24;
 
     @IntDef(prefix = { "PRIORITY_" }, value = {
             PRIORITY_DEFAULT_RENDER_FRAME_RATE,
@@ -172,6 +176,7 @@ interface Vote {
             PRIORITY_SYSTEM_REQUESTED_MODES,
             PRIORITY_LOW_POWER_MODE_MODES,
             PRIORITY_LOW_POWER_MODE_RENDER_RATE,
+            PRIORITY_DOZE_REFRESH_RATE,
             PRIORITY_FLICKER_REFRESH_RATE_SWITCH,
             PRIORITY_SKIN_TEMPERATURE,
             PRIORITY_PROXIMITY,
@@ -280,6 +285,8 @@ interface Vote {
                 return "PRIORITY_LOW_POWER_MODE_MODES";
             case PRIORITY_LOW_POWER_MODE_RENDER_RATE:
                 return "PRIORITY_LOW_POWER_MODE_RENDER_RATE";
+            case PRIORITY_DOZE_REFRESH_RATE:
+                return "PRIORITY_DOZE_REFRESH_RATE";
             case PRIORITY_SKIN_TEMPERATURE:
                 return "PRIORITY_SKIN_TEMPERATURE";
             case PRIORITY_UDFPS:

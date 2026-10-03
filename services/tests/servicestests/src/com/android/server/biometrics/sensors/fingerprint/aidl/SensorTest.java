@@ -29,9 +29,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.content.Context;
+import android.content.res.Resources;
 import android.hardware.biometrics.IBiometricService;
 import android.hardware.biometrics.common.CommonProps;
-import android.hardware.biometrics.face.SensorProps;
+import android.hardware.biometrics.fingerprint.FingerprintSensorType;
+import android.hardware.biometrics.fingerprint.SensorLocation;
+import android.hardware.biometrics.fingerprint.SensorProps;
 import android.hardware.biometrics.fingerprint.IFingerprint;
 import android.hardware.biometrics.fingerprint.ISession;
 import android.hardware.fingerprint.FingerprintSensorPropertiesInternal;
@@ -42,6 +45,10 @@ import android.platform.test.annotations.Presubmit;
 
 import androidx.test.filters.SmallTest;
 
+import com.android.dx.mockito.inline.extended.ExtendedMockito;
+import com.android.internal.R;
+import com.android.modules.utils.testing.ExtendedMockitoRule;
+import com.android.server.biometrics.Utils;
 import com.android.server.biometrics.log.BiometricContext;
 import com.android.server.biometrics.log.BiometricLogger;
 import com.android.server.biometrics.sensors.AuthSessionCoordinator;
@@ -55,10 +62,12 @@ import com.android.server.biometrics.sensors.fingerprint.FingerprintUtils;
 import com.android.server.biometrics.sensors.fingerprint.GestureAvailabilityDispatcher;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
+
+import java.util.List;
 
 @Presubmit
 @SmallTest
@@ -69,8 +78,15 @@ public class SensorTest {
     private static final int SENSOR_ID = 4;
     private static final byte[] HAT = new byte[69];
 
+    @Rule
+    public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
+            .spyStatic(Utils.class)
+            .build();
+
     @Mock
     private Context mContext;
+    @Mock
+    private Resources mResources;
     @Mock
     private IBiometricService mBiometricService;
     @Mock
@@ -108,9 +124,11 @@ public class SensorTest {
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
+        when(mContext.getResources()).thenReturn(mResources);
 
         when(mContext.getSystemService(Context.BIOMETRIC_SERVICE)).thenReturn(mBiometricService);
+        ExtendedMockito.doAnswer(invocation -> mBiometricService.getCurrentStrength(SENSOR_ID))
+                .when(() -> Utils.getCurrentStrength(SENSOR_ID));
         when(mBiometricContext.getAuthSessionCoordinator()).thenReturn(mAuthSessionCoordinator);
         when(mThread.getLooper()).thenReturn(mLooper.getLooper());
 
@@ -176,6 +194,81 @@ public class SensorTest {
         verify(mClientMonitor).cancel();
         assertNull(sensor.getSessionForUser(USER_ID));
         assertNull(mScheduler.getCurrentClient());
+    }
+
+    @Test
+    public void sensorTypeOverride_defaultPreservesHalType() {
+        final SensorProps props = createSensorProps(FingerprintSensorType.UNDER_DISPLAY_OPTICAL);
+
+        final Sensor sensor = createSensorFromHalProps(props);
+
+        assertEquals(FingerprintSensorType.UNDER_DISPLAY_OPTICAL,
+                sensor.getSensorProperties().sensorType);
+    }
+
+    @Test
+    public void sensorTypeOverride_correctsOpticalReportToUltrasonic() {
+        when(mResources.getInteger(R.integer.config_udfpsSensorType))
+                .thenReturn((int) FingerprintSensorType.UNDER_DISPLAY_ULTRASONIC);
+        final SensorProps props = createSensorProps(FingerprintSensorType.UNDER_DISPLAY_OPTICAL);
+
+        final FingerprintSensorPropertiesInternal actual =
+                createSensorFromHalProps(props).getSensorProperties();
+
+        assertEquals(FingerprintSensorType.UNDER_DISPLAY_ULTRASONIC, actual.sensorType);
+        assertEquals(FingerprintSensorType.UNDER_DISPLAY_OPTICAL, props.sensorType);
+        assertEquals(SENSOR_ID, actual.sensorId);
+        assertEquals(5, actual.maxEnrollmentsPerUser);
+        assertEquals(600, actual.getLocation().sensorLocationX);
+        assertEquals(2000, actual.getLocation().sensorLocationY);
+        assertEquals(140, actual.getLocation().sensorRadius);
+    }
+
+    @Test
+    public void sensorTypeOverride_doesNotConvertNonUdfpsSensors() {
+        when(mResources.getInteger(R.integer.config_udfpsSensorType))
+                .thenReturn((int) FingerprintSensorType.UNDER_DISPLAY_ULTRASONIC);
+        for (byte halType : new byte[] {
+                FingerprintSensorType.REAR, FingerprintSensorType.POWER_BUTTON}) {
+            final Sensor sensor = createSensorFromHalProps(createSensorProps(halType));
+
+            assertEquals(halType, sensor.getSensorProperties().sensorType);
+        }
+    }
+
+    @Test
+    public void sensorTypeOverride_invalidValuePreservesHalType() {
+        for (int invalidType : new int[] {-1, FingerprintSensorType.REAR,
+                FingerprintSensorType.POWER_BUTTON, 99}) {
+            when(mResources.getInteger(R.integer.config_udfpsSensorType)).thenReturn(invalidType);
+
+            final Sensor sensor = createSensorFromHalProps(
+                    createSensorProps(FingerprintSensorType.UNDER_DISPLAY_OPTICAL));
+
+            assertEquals(FingerprintSensorType.UNDER_DISPLAY_OPTICAL,
+                    sensor.getSensorProperties().sensorType);
+        }
+    }
+
+    private Sensor createSensorFromHalProps(SensorProps props) {
+        return new Sensor(mFingerprintProvider, mContext, new Handler(mLooper.getLooper()),
+                props, mBiometricContext, List.of(),
+                true /* resetLockoutRequiresHardwareAuthToken */);
+    }
+
+    private SensorProps createSensorProps(byte sensorType) {
+        final SensorProps props = new SensorProps();
+        props.commonProps = new CommonProps();
+        props.commonProps.sensorId = SENSOR_ID;
+        props.commonProps.maxEnrollmentsPerUser = 5;
+        props.sensorType = sensorType;
+        final SensorLocation location = new SensorLocation();
+        location.display = "";
+        location.sensorLocationX = 600;
+        location.sensorLocationY = 2000;
+        location.sensorRadius = 140;
+        props.sensorLocations = new SensorLocation[] {location};
+        return props;
     }
 
     private void verifyNotLocked() {

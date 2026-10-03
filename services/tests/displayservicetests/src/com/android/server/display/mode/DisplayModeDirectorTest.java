@@ -70,6 +70,7 @@ import android.os.IThermalEventListener;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.os.Temperature;
+import android.os.UserHandle;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.test.mock.MockContentResolver;
@@ -3567,12 +3568,7 @@ public class DisplayModeDirectorTest {
                 createDirectorFromRefreshRateArray(new float[]{60.0f, 90.0f}, 0);
         director.start(createMockSensorManager());
 
-        ArgumentCaptor<DisplayListener> displayListenerCaptor =
-                ArgumentCaptor.forClass(DisplayListener.class);
-        verify(mInjector, atLeastOnce()).registerDisplayListener(displayListenerCaptor.capture(),
-                any(Handler.class));
-        // DisplayObserver should register first
-        DisplayListener displayListener = displayListenerCaptor.getAllValues().get(0);
+        DisplayListener displayListener = director.getDisplayObserver();
 
         float refreshRate = 60;
         mInjector.mDisplayInfo.layoutLimitedRefreshRate =
@@ -3599,12 +3595,7 @@ public class DisplayModeDirectorTest {
                 createDirectorFromRefreshRateArray(new float[]{60.0f, 90.0f}, 0);
         director.start(createMockSensorManager());
 
-        ArgumentCaptor<DisplayListener> displayListenerCaptor =
-                ArgumentCaptor.forClass(DisplayListener.class);
-        verify(mInjector, atLeastOnce()).registerDisplayListener(displayListenerCaptor.capture(),
-                any(Handler.class));
-        // DisplayObserver should register first
-        DisplayListener displayListener = displayListenerCaptor.getAllValues().get(0);
+        DisplayListener displayListener = director.getDisplayObserver();
 
         mInjector.mDisplayInfo.layoutLimitedRefreshRate = new RefreshRateRange(10, 10);
         mInjector.mDisplayInfoValid = false;
@@ -3622,12 +3613,7 @@ public class DisplayModeDirectorTest {
                 createDirectorFromRefreshRateArray(new float[]{60.0f, 90.0f}, 0);
         director.start(createMockSensorManager());
 
-        ArgumentCaptor<DisplayListener> displayListenerCaptor =
-                ArgumentCaptor.forClass(DisplayListener.class);
-        verify(mInjector, atLeastOnce()).registerDisplayListener(displayListenerCaptor.capture(),
-                any(Handler.class));
-
-        DisplayListener displayListener = displayListenerCaptor.getAllValues().get(0);
+        DisplayListener displayListener = director.getDisplayObserver();
         mInjector.mDisplayInfo.supportedModes = new Display.Mode[] {
                 new Display.Mode(1, -1, Display.Mode.FLAG_SIZE_OVERRIDE,
                         1000, 1000, 60f, 60f, new float[]{},
@@ -3650,12 +3636,7 @@ public class DisplayModeDirectorTest {
                 createDirectorFromRefreshRateArray(new float[]{60.0f, 90.0f}, 0);
         director.start(createMockSensorManager());
 
-        ArgumentCaptor<DisplayListener> displayListenerCaptor =
-                ArgumentCaptor.forClass(DisplayListener.class);
-        verify(mInjector, atLeastOnce()).registerDisplayListener(displayListenerCaptor.capture(),
-                any(Handler.class));
-
-        DisplayListener displayListener = displayListenerCaptor.getAllValues().get(0);
+        DisplayListener displayListener = director.getDisplayObserver();
         mInjector.mDisplayInfo.supportedModes = new Display.Mode[] {
                 new Display.Mode(1, -1, 0,
                         1000, 1000, 60f, 60f, new float[]{},
@@ -3670,6 +3651,168 @@ public class DisplayModeDirectorTest {
 
         Vote vote = director.getVote(DISPLAY_ID, Vote.PRIORITY_USER_SETTING_DISPLAY_PREFERRED_SIZE);
         assertThat(vote).isNotNull();
+    }
+
+    @Test
+    public void testDozeMaxRefreshRate_disabledByDefault() {
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                0, new float[] {60f, 144f}, Display.STATE_ON);
+        setMinRefreshRate(144f);
+        setPeakRefreshRate(144f);
+
+        mInjector.mDisplayInfo.state = Display.STATE_DOZE;
+        director.getDisplayObserver().onDisplayChanged(DISPLAY_ID);
+
+        assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_DOZE_REFRESH_RATE)).isNull();
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.render.min)
+                .isEqualTo(144f);
+    }
+
+    @Test
+    @Parameters({"true", "false"})
+    public void testDozeMaxRefreshRate_initializedWhileDozing(boolean displayAddedObserver) {
+        when(mDisplayManagerFlags.isOnDisplayAddedInObserverEnabled())
+                .thenReturn(displayAddedObserver);
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                60, new float[] {60f, 144f}, Display.STATE_DOZE);
+
+        assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_DOZE_REFRESH_RATE)).isNotNull();
+        assertDozePhysicalRefreshRateLimit(director, 60f);
+        verify(mInjector).registerDisplayListener(eq(director.getDisplayObserver()),
+                any(Handler.class), eq(DisplayManager.EVENT_TYPE_DISPLAY_ADDED
+                        | DisplayManager.EVENT_TYPE_DISPLAY_CHANGED
+                        | DisplayManager.EVENT_TYPE_DISPLAY_REMOVED
+                        | DisplayManager.EVENT_TYPE_DISPLAY_STATE));
+    }
+
+    @Test
+    public void testDozeMaxRefreshRate_overridesUserMinimumAndRestoresItOnWake() {
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                60, new float[] {60f, 144f}, Display.STATE_ON);
+        setMinRefreshRate(144f);
+        setPeakRefreshRate(144f);
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.render.min)
+                .isEqualTo(144f);
+
+        mInjector.mDisplayInfo.state = Display.STATE_DOZE;
+        director.getDisplayObserver().onDisplayChanged(DISPLAY_ID);
+        assertDozePhysicalRefreshRateLimit(director, 60f);
+
+        mInjector.mDisplayInfo.state = Display.STATE_DOZE_SUSPEND;
+        director.getDisplayObserver().onDisplayChanged(DISPLAY_ID);
+        assertDozePhysicalRefreshRateLimit(director, 60f);
+
+        mInjector.mDisplayInfo.state = Display.STATE_ON;
+        director.getDisplayObserver().onDisplayChanged(DISPLAY_ID);
+        assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_DOZE_REFRESH_RATE)).isNull();
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.render.min)
+                .isEqualTo(144f);
+        assertThat(Settings.System.getFloat(mContext.getContentResolver(),
+                Settings.System.MIN_REFRESH_RATE, 0f)).isEqualTo(144f);
+        assertThat(Settings.System.getFloat(mContext.getContentResolver(),
+                Settings.System.PEAK_REFRESH_RATE, 0f)).isEqualTo(144f);
+    }
+
+    @Test
+    public void testDozeMaxRefreshRate_activeUdfpsOverridesLimit() throws RemoteException {
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                60, new float[] {60f, 144f}, Display.STATE_DOZE);
+        setMinRefreshRate(144f);
+        setPeakRefreshRate(144f);
+        director.onBootCompleted();
+        ArgumentCaptor<IUdfpsRefreshRateRequestCallback> captor =
+                ArgumentCaptor.forClass(IUdfpsRefreshRateRequestCallback.class);
+        verify(mStatusBarMock).setUdfpsRefreshRateCallback(captor.capture());
+
+        // Authentication availability may pre-warm the panel, but must not pin idle AOD.
+        captor.getValue().onAuthenticationPossible(DISPLAY_ID, true);
+        assertDozePhysicalRefreshRateLimit(director, 60f);
+
+        captor.getValue().onRequestEnabled(DISPLAY_ID);
+        DesiredDisplayModeSpecs specs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(specs.primary.physical.min).isEqualTo(144f);
+        assertThat(specs.primary.physical.max).isEqualTo(144f);
+
+        captor.getValue().onRequestDisabled(DISPLAY_ID);
+        assertDozePhysicalRefreshRateLimit(director, 60f);
+    }
+
+    @Test
+    public void testDozeMaxRefreshRate_ignoresExternalDisplaysAndClearsRemovedDisplay() {
+        mInjector.setEnabledDisplays(Map.of(DISPLAY_ID, Display.TYPE_INTERNAL,
+                DISPLAY_ID_2, Display.TYPE_EXTERNAL));
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                60, new float[] {60f, 144f}, Display.STATE_DOZE);
+
+        assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_DOZE_REFRESH_RATE)).isNotNull();
+        assertThat(director.getVote(DISPLAY_ID_2, Vote.PRIORITY_DOZE_REFRESH_RATE)).isNull();
+
+        director.getDisplayObserver().onDisplayRemoved(DISPLAY_ID);
+        assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_DOZE_REFRESH_RATE)).isNull();
+    }
+
+    @Test
+    public void testDozeMaxRefreshRate_preservesSupportedModesBelowLimit() {
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                60, new float[] {30f, 60f, 144f}, Display.STATE_DOZE);
+
+        assertDozePhysicalRefreshRateLimit(director, 60f);
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.physical.min)
+                .isEqualTo(0f);
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).baseModeId)
+                .isEqualTo(MODE_ID);
+    }
+
+    @Test
+    public void testDozeMaxRefreshRate_withoutMatchingModeKeepsValidSpecs() {
+        DisplayModeDirector director = startDozeRefreshRateDirector(
+                60, new float[] {90f, 144f}, Display.STATE_DOZE);
+
+        DesiredDisplayModeSpecs specs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(specs.baseModeId).isEqualTo(MODE_ID);
+        assertThat(specs.primary.physical.max).isAtLeast(90f);
+    }
+
+    private DisplayModeDirector startDozeRefreshRateDirector(
+            int maximumRefreshRate, float[] refreshRates, int state) {
+        prepareDozeSettings();
+        when(mResources.getInteger(R.integer.config_dozeMaxRefreshRate))
+                .thenReturn(maximumRefreshRate);
+        mInjector.mDisplayInfo.supportedModes = createDisplayModes(refreshRates, MODE_ID);
+        mInjector.mDisplayInfo.appsSupportedModes = mInjector.mDisplayInfo.supportedModes;
+        mInjector.mDisplayInfo.state = state;
+        DisplayModeDirector director = new DisplayModeDirector(mContext, mHandler, mInjector,
+                mDisplayManagerFlags, mDisplayDeviceConfigProvider);
+        try {
+            director.start(createMockSensorManager());
+        } finally {
+            // Display observation posts initialization before the other observers start.
+            // Drain it even if startup fails, before the settings rule clears its provider.
+            waitForIdleSync();
+        }
+        return director;
+    }
+
+    private void prepareDozeSettings() {
+        MockContentResolver resolver = spy(mSettingsProviderRule.mockContentResolver(mContext));
+        Mockito.doNothing().when(resolver).registerContentObserver(
+                any(), Mockito.anyBoolean(), any(ContentObserver.class), anyInt());
+        Mockito.doReturn(resolver).when(mContext).getContentResolver();
+
+        // Settings caches the first provider process-wide. Bind every table to the fake before
+        // display initialization reads USER_CURRENT settings on the handler thread.
+        FakeSettingsProvider.clearSettingsProvider();
+        Settings.System.getStringForUser(resolver, Settings.System.MIN_REFRESH_RATE,
+                UserHandle.USER_CURRENT);
+        Settings.Global.getString(resolver, Settings.Global.LOW_POWER_MODE);
+        Settings.Secure.getStringForUser(resolver, Settings.Secure.MATCH_CONTENT_FRAME_RATE,
+                UserHandle.USER_CURRENT);
+    }
+
+    private void assertDozePhysicalRefreshRateLimit(DisplayModeDirector director, float limit) {
+        DesiredDisplayModeSpecs specs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(specs.primary.physical.max).isEqualTo(limit);
+        assertThat(specs.appRequest.physical.max).isEqualTo(limit);
     }
 
     private Temperature getSkinTemp(@Temperature.ThrottlingStatus int status) {

@@ -28,6 +28,7 @@ import android.hardware.biometrics.ITestSession;
 import android.hardware.biometrics.ITestSessionCallback;
 import android.hardware.biometrics.SensorLocationInternal;
 import android.hardware.biometrics.common.ComponentInfo;
+import android.hardware.biometrics.fingerprint.FingerprintSensorType;
 import android.hardware.biometrics.fingerprint.IFingerprint;
 import android.hardware.biometrics.fingerprint.ISession;
 import android.hardware.biometrics.fingerprint.SensorProps;
@@ -43,6 +44,7 @@ import android.os.UserManager;
 import android.util.Slog;
 import android.util.proto.ProtoOutputStream;
 
+import com.android.internal.R;
 import com.android.internal.util.FrameworkStatsLog;
 import com.android.server.biometrics.SensorServiceStateProto;
 import com.android.server.biometrics.SensorStateProto;
@@ -114,7 +116,8 @@ public class Sensor {
             @NonNull BiometricContext biometricContext,
             @NonNull List<SensorLocationInternal> workaroundLocation,
             boolean resetLockoutRequiresHardwareAuthToken) {
-        this(provider, context, handler, getFingerprintSensorPropertiesInternal(sensorProp,
+        this(provider, context, handler,
+                getFingerprintSensorPropertiesInternal(context, sensorProp,
                         workaroundLocation, resetLockoutRequiresHardwareAuthToken),
                 biometricContext, null);
     }
@@ -209,7 +212,7 @@ public class Sensor {
     }
 
     protected static FingerprintSensorPropertiesInternal getFingerprintSensorPropertiesInternal(
-            SensorProps prop, List<SensorLocationInternal> workaroundLocations,
+            Context context, SensorProps prop, List<SensorLocationInternal> workaroundLocations,
             boolean resetLockoutRequiresHardwareAuthToken) {
         final List<ComponentInfoInternal> componentInfo = new ArrayList<>();
         if (prop.commonProps.componentInfo != null) {
@@ -223,7 +226,7 @@ public class Sensor {
                 prop.commonProps.sensorStrength,
                 prop.commonProps.maxEnrollmentsPerUser,
                 componentInfo,
-                prop.sensorType,
+                getConfiguredSensorType(context, prop.sensorType),
                 prop.halControlsIllumination,
                 prop.halHandlesDisplayTouches,
                 resetLockoutRequiresHardwareAuthToken,
@@ -235,6 +238,20 @@ public class Sensor {
                                                 location.sensorLocationY,
                                                 location.sensorRadius))
                                 .collect(Collectors.toList()));
+    }
+
+    private static int getConfiguredSensorType(Context context, int halSensorType) {
+        if (halSensorType != FingerprintSensorType.UNDER_DISPLAY_OPTICAL
+                && halSensorType != FingerprintSensorType.UNDER_DISPLAY_ULTRASONIC) {
+            return halSensorType;
+        }
+        final int configuredType = context.getResources().getInteger(
+                R.integer.config_udfpsSensorType);
+        if (configuredType == FingerprintSensorType.UNDER_DISPLAY_OPTICAL
+                || configuredType == FingerprintSensorType.UNDER_DISPLAY_ULTRASONIC) {
+            return configuredType;
+        }
+        return halSensorType;
     }
 
     @NonNull public Supplier<AidlSession> getLazySession() {
