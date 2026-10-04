@@ -11,10 +11,14 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
+import android.hardware.CameraStatus
+import android.hardware.ICameraService
+import android.hardware.ICameraServiceListener
 import android.hardware.camera2.CameraManager
 import android.hardware.graphics.common.AlphaInterpretation
 import android.hardware.graphics.common.DisplayDecorationSupport
 import android.testing.TestableContext
+import android.os.RemoteException
 import android.view.Display
 import android.view.DisplayCutout
 import android.view.DisplayInfo
@@ -33,8 +37,10 @@ import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.spy
+import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when` as whenever
 
 /** Exercises the real drawing, provider and camera callback code without the full SystemUI suite. */
@@ -276,6 +282,61 @@ class CameraProtectionRegressionTest {
         assertThat(fixture.shown).isFalse()
     }
 
+    @Test
+    fun existingCameraSnapshotRestoresProtectionUntilClose() {
+        val fixture = listenerFixture(initialStates = listOf(cameraState()))
+        assertThat(fixture.shown).isTrue()
+        fixture.events.onCameraClosed("3")
+        assertThat(fixture.shown).isFalse()
+    }
+
+    @Test
+    fun existingExcludedClientDoesNotApplyProtection() {
+        val fixture = listenerFixture(initialStates = listOf(cameraState("excluded.app")))
+        assertThat(fixture.shown).isFalse()
+    }
+
+    @Test
+    fun snapshotRespectsUnavailablePhysicalCamera() {
+        val state = cameraState().apply { unavailablePhysicalCameras = arrayOf("front") }
+        val fixture = listenerFixture("front", listOf(state))
+        assertThat(fixture.shown).isFalse()
+        fixture.events.onPhysicalCameraAvailable("3", "front")
+        assertThat(fixture.shown).isTrue()
+    }
+
+    @Test
+    fun snapshotFiltersVirtualDevicesAndRemovesTemporaryListener() {
+        val manager = mock(CameraManager::class.java)
+        val service = mock(ICameraService::class.java)
+        val builtIn = cameraState()
+        val virtual = cameraState().apply { deviceId = 1 }
+        whenever(manager.cameraService).thenReturn(service)
+        whenever(service.addListener(any(ICameraServiceListener::class.java)))
+            .thenReturn(arrayOf(builtIn, virtual))
+        assertThat(CameraProtectionStateSnapshot.read(manager, 0)).containsExactly(builtIn)
+        verify(service).removeListener(any(ICameraServiceListener::class.java))
+    }
+
+    @Test
+    fun unavailableSnapshotStillRemovesTemporaryListener() {
+        val manager = mock(CameraManager::class.java)
+        val service = mock(ICameraService::class.java)
+        whenever(manager.cameraService).thenReturn(service)
+        doThrow(RemoteException("service disconnected")).`when`(service)
+            .addListener(any(ICameraServiceListener::class.java))
+        assertThat(CameraProtectionStateSnapshot.read(manager, 0)).isEmpty()
+        verify(service).removeListener(any(ICameraServiceListener::class.java))
+    }
+
+    private fun cameraState(packageId: String = "third.party") = CameraStatus().apply {
+        cameraId = "3"
+        status = ICameraServiceListener.STATUS_NOT_AVAILABLE
+        clientPackage = packageId
+        deviceId = 0
+        unavailablePhysicalCameras = emptyArray()
+    }
+
     private fun onMain(block: () -> Unit) {
         var failure: Throwable? = null
         instrumentation.runOnMainSync {
@@ -288,7 +349,10 @@ class CameraProtectionRegressionTest {
         failure?.let { throw it }
     }
 
-    private fun listenerFixture(physicalId: String? = null): ListenerFixture {
+    private fun listenerFixture(
+        physicalId: String? = null,
+        initialStates: List<CameraStatus> = emptyList(),
+    ): ListenerFixture {
         val fixture = ListenerFixture()
         val manager = mock(CameraManager::class.java)
         doAnswer {
@@ -299,7 +363,7 @@ class CameraProtectionRegressionTest {
         )
         fixture.listener = CameraAvailabilityListener(
             manager, listOf(CameraProtectionInfo("3", physicalId, path, bounds, null)),
-            "excluded.app", Executor { it.run() },
+            "excluded.app", Executor { it.run() }, { initialStates },
         )
         fixture.listener.addTransitionCallback(
             object : CameraAvailabilityListener.CameraTransitionCallback {

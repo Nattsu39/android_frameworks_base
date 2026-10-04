@@ -19,6 +19,8 @@ package com.android.systemui
 import android.content.Context
 import android.graphics.Path
 import android.graphics.Rect
+import android.hardware.CameraStatus
+import android.hardware.ICameraServiceListener
 import android.hardware.camera2.CameraManager
 import com.android.systemui.res.R
 import java.util.concurrent.Executor
@@ -32,7 +34,8 @@ class CameraAvailabilityListener(
     private val cameraManager: CameraManager,
     private val cameraProtectionInfoList: List<CameraProtectionInfo>,
     excludedPackages: String,
-    private val executor: Executor
+    private val executor: Executor,
+    private val initialCameraStates: () -> List<CameraStatus> = { emptyList() },
 ) {
     private var activeProtectionInfo: CameraProtectionInfo? = null
     private val openCameras = mutableMapOf<String, String>()
@@ -113,6 +116,18 @@ class CameraAvailabilityListener(
      */
     fun startListening() {
         registerCameraListener()
+        // Register first so changes after the snapshot still arrive on the same executor.
+        initialCameraStates().forEach { state ->
+            state.unavailablePhysicalCameras?.forEach { physicalId ->
+                availabilityCallback.onPhysicalCameraUnavailable(state.cameraId, physicalId)
+            }
+            if (
+                state.status == ICameraServiceListener.STATUS_NOT_AVAILABLE &&
+                    !state.clientPackage.isNullOrEmpty()
+            ) {
+                availabilityCallback.onCameraOpened(state.cameraId, state.clientPackage)
+            }
+        }
     }
 
     fun stop() {
@@ -178,7 +193,15 @@ class CameraAvailabilityListener(
             val cameraProtectionInfoList = cameraProtectionLoader.loadCameraProtectionInfoList()
             val excluded = res.getString(R.string.config_cameraProtectionExcludedPackages)
 
-            return CameraAvailabilityListener(manager, cameraProtectionInfoList, excluded, executor)
+            val initialCameraStates: () -> List<CameraStatus> =
+                if (res.getBoolean(R.bool.config_enableCameraProtectionWithoutCutout)) {
+                    { CameraProtectionStateSnapshot.read(manager, context.deviceId) }
+                } else {
+                    { emptyList() }
+                }
+            return CameraAvailabilityListener(
+                manager, cameraProtectionInfoList, excluded, executor, initialCameraStates
+            )
         }
     }
 
