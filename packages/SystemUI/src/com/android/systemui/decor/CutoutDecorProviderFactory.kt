@@ -21,6 +21,7 @@ import android.util.Log
 import android.view.Display
 import android.view.DisplayCutout
 import android.view.DisplayInfo
+import com.android.systemui.res.R
 
 class CutoutDecorProviderFactory(private val res: Resources, private val display: Display?) :
     DecorProviderFactory {
@@ -31,8 +32,13 @@ class CutoutDecorProviderFactory(private val res: Resources, private val display
         get() {
             display?.getDisplayInfo(displayInfo)
                 ?: run { Log.w(TAG, "display is null, can't update displayInfo") }
-            return DisplayCutout.getFillBuiltInDisplayCutout(res, displayInfo.uniqueId)
+            return DisplayCutout.getFillBuiltInDisplayCutout(res, displayInfo.uniqueId) ||
+                protectionWithoutCutout
         }
+
+    private val protectionWithoutCutout: Boolean
+        get() = res.getBoolean(R.bool.config_enableDisplayCutoutProtection) &&
+            res.getBoolean(R.bool.config_enableCameraProtectionWithoutCutout)
 
     override val providers: List<DecorProvider>
         get() {
@@ -43,8 +49,14 @@ class CutoutDecorProviderFactory(private val res: Resources, private val display
             return ArrayList<DecorProvider>().also { list ->
                 // We need to update displayInfo before using it, but it has already updated during
                 // accessing hasProviders field
-                displayInfo.displayCutout?.getBoundBaseOnCurrentRotation()?.let { bounds ->
-                    for (bound in bounds) {
+                val bounds = if (DisplayCutout.getFillBuiltInDisplayCutout(res, displayInfo.uniqueId)) {
+                    displayInfo.displayCutout?.getBoundBaseOnCurrentRotation()
+                } else null
+                if (bounds.isNullOrEmpty() && protectionWithoutCutout) {
+                    list.add(CutoutDecorProviderImpl(DisplayCutout.BOUNDS_POSITION_TOP))
+                }
+                bounds?.let { cutoutBounds ->
+                    for (bound in cutoutBounds) {
                         list.add(
                             CutoutDecorProviderImpl(bound.baseOnRotation0(displayInfo.rotation))
                         )

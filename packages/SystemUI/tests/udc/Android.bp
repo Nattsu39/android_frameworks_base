@@ -1,0 +1,26 @@
+// Copyright (C) 2026 The Android Open Source Project
+// SPDX-License-Identifier: Apache-2.0
+
+android_test {
+    name: "SystemUICameraProtectionTests",
+    manifest: "AndroidManifest.xml",
+    // Use SystemUI's real classes and resources with this test application's own components.
+    dont_merge_manifests: true,
+    srcs: ["src/**/*.kt"],
+    resource_dirs: [],
+    use_resource_processor: true,
+    platform_apis: true,
+    certificate: "platform",
+    static_libs: [
+        "SystemUI-core",
+        "androidx.test.runner",
+        "androidx.test.ext.junit",
+        "mockito-target-extended-minus-junit4",
+        "testables",
+        "truth",
+    ],
+    libs: ["android.test.base.stubs.system"],
+    jni_libs: ["libdexmakerjvmtiagent", "libstaticjvmtiagent"],
+    test_suites: ["device-tests"],
+    optimize: { enabled: false },
+}

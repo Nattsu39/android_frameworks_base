@@ -636,6 +636,13 @@
     <!--  Flag to turn on the rendering of the above path or not  -->
     <bool name="config_enableDisplayCutoutProtection">false</bool>
 
+    <!-- Provide a software protection view for a camera near the natural top edge even when
+         the panel has no physical cutout. This does not change DisplayCutout or app insets. -->
+    <bool name="config_enableCameraProtectionWithoutCutout">false</bool>
+
+    <!-- Camera protection transition duration in milliseconds. Zero applies it immediately. -->
+    <integer name="config_cameraProtectionAnimationDuration">750</integer>
+
     <!-- Controls can query 2 preferred applications for limited number of suggested controls.
          This config value should contain a list of package names of thoses preferred applications.
     -->

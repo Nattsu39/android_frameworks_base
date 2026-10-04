@@ -228,7 +228,9 @@ class ScreenDecorHwcLayer(
     }
 
     private fun removeCutoutProtectionFromTransparentRegion() {
-        if (protectionRect.isEmpty) {
+        if (protectionRect.isEmpty ||
+            cameraProtectionProgress <= DisplayCutoutBaseView.HIDDEN_CAMERA_PROTECTION_SCALE
+        ) {
             return
         }
 

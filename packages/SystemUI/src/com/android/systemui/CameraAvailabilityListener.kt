@@ -35,29 +35,30 @@ class CameraAvailabilityListener(
     private val executor: Executor
 ) {
     private var activeProtectionInfo: CameraProtectionInfo? = null
-    private var openCamera: OpenCameraInfo? = null
-    private val unavailablePhysicalCameras = mutableSetOf<String>()
+    private val openCameras = mutableMapOf<String, String>()
+    private val unavailablePhysicalCameras = mutableSetOf<Pair<String, String>>()
     private val excludedPackageIds: Set<String>
     private val listeners = mutableListOf<CameraTransitionCallback>()
     private val availabilityCallback: CameraManager.AvailabilityCallback =
         object : CameraManager.AvailabilityCallback() {
             override fun onCameraClosed(logicalCameraId: String) {
-                openCamera = null
+                openCameras.remove(logicalCameraId)
                 if (activeProtectionInfo?.logicalCameraId == logicalCameraId) {
+                    activeProtectionInfo = null
                     notifyCameraInactive()
                 }
-                activeProtectionInfo = null
             }
 
             override fun onCameraOpened(logicalCameraId: String, packageId: String) {
-                openCamera = OpenCameraInfo(logicalCameraId, packageId)
+                openCameras[logicalCameraId] = packageId
                 if (isExcluded(packageId)) {
                     return
                 }
                 val protectionInfo =
                     cameraProtectionInfoList.firstOrNull {
                         logicalCameraId == it.logicalCameraId &&
-                            it.physicalCameraId !in unavailablePhysicalCameras
+                            (it.logicalCameraId to it.physicalCameraId) !in
+                                unavailablePhysicalCameras
                     }
                 if (protectionInfo != null) {
                     activeProtectionInfo = protectionInfo
@@ -69,12 +70,9 @@ class CameraAvailabilityListener(
                 logicalCameraId: String,
                 physicalCameraId: String
             ) {
-                unavailablePhysicalCameras -= physicalCameraId
-                val openCamera = this@CameraAvailabilityListener.openCamera ?: return
-                if (openCamera.logicalCameraId != logicalCameraId) {
-                    return
-                }
-                if (isExcluded(openCamera.packageId)) {
+                unavailablePhysicalCameras -= logicalCameraId to physicalCameraId
+                val packageId = openCameras[logicalCameraId] ?: return
+                if (isExcluded(packageId)) {
                     return
                 }
                 val newActiveInfo =
@@ -92,7 +90,7 @@ class CameraAvailabilityListener(
                 logicalCameraId: String,
                 physicalCameraId: String
             ) {
-                unavailablePhysicalCameras += physicalCameraId
+                unavailablePhysicalCameras += logicalCameraId to physicalCameraId
                 val activeInfo = activeProtectionInfo ?: return
                 if (
                     activeInfo.logicalCameraId == logicalCameraId &&
@@ -119,6 +117,12 @@ class CameraAvailabilityListener(
 
     fun stop() {
         unregisterCameraListener()
+        openCameras.clear()
+        unavailablePhysicalCameras.clear()
+        if (activeProtectionInfo != null) {
+            activeProtectionInfo = null
+            notifyCameraInactive()
+        }
     }
 
     fun addTransitionCallback(callback: CameraTransitionCallback) {
@@ -178,8 +182,4 @@ class CameraAvailabilityListener(
         }
     }
 
-    private data class OpenCameraInfo(
-        val logicalCameraId: String,
-        val packageId: String,
-    )
 }

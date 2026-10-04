@@ -1258,7 +1258,9 @@ public class ScreenDecorations implements
     }
 
     private boolean shouldOptimizeVisibility() {
-        return (isPrivacyDotEnabled() || mFaceScanningFactory.getHasProviders())
+        return !(mHwcScreenDecorationSupport == null && mContext.getResources().getBoolean(
+                    R.bool.config_enableCameraProtectionWithoutCutout))
+                && (isPrivacyDotEnabled() || mFaceScanningFactory.getHasProviders())
                 && (mHwcScreenDecorationSupport != null
                     || (!hasRoundedCorners() && !shouldDrawCutout())
                 );
@@ -1444,10 +1446,28 @@ public class ScreenDecorations implements
                 invalidate();
                 newVisible = VISIBLE;
             } else {
-                newVisible = GONE;
+                newVisible = protectionWithoutCutout() && showProtection ? VISIBLE : GONE;
+                if (newVisible == VISIBLE) {
+                    updateGravity();
+                }
             }
             if (updateVisOnUpdateCutout() && newVisible != getVisibility()) {
                 setVisibility(newVisible);
+            }
+        }
+
+        private boolean protectionWithoutCutout() {
+            return !hasCutout() && getResources().getBoolean(
+                    R.bool.config_enableCameraProtectionWithoutCutout);
+        }
+
+        @Override
+        public void onUpdate() {
+            super.onUpdate();
+            if (protectionWithoutCutout()) {
+                updateGravity();
+                setVisibility(showProtection || getCameraProtectionProgress() > 0f ? VISIBLE : GONE);
+                requestLayout();
             }
         }
 
@@ -1468,7 +1488,8 @@ public class ScreenDecorations implements
             LayoutParams lp = getLayoutParams();
             if (lp instanceof FrameLayout.LayoutParams) {
                 FrameLayout.LayoutParams flp = (FrameLayout.LayoutParams) lp;
-                int newGravity = getGravity(displayInfo.displayCutout);
+                int newGravity = protectionWithoutCutout()
+                        ? gravityForPosition() : getGravity(displayInfo.displayCutout);
                 if (flp.gravity != newGravity) {
                     flp.gravity = newGravity;
                     setLayoutParams(flp);
@@ -1497,7 +1518,31 @@ public class ScreenDecorations implements
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             if (mBounds.isEmpty()) {
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                if (protectionWithoutCutout() && !protectionRect.isEmpty()
+                        && (showProtection || getCameraProtectionProgress() > 0f)) {
+                    // Include the gap from the edge to the camera. The drawing path stays in
+                    // display coordinates; the window's screen location supplies the translation.
+                    int width = displayInfo.logicalWidth;
+                    int height = displayInfo.logicalHeight;
+                    switch (mPosition) {
+                        case BOUNDS_POSITION_TOP:
+                            height = (int) Math.ceil(protectionRect.bottom);
+                            break;
+                        case BOUNDS_POSITION_LEFT:
+                            width = (int) Math.ceil(protectionRect.right);
+                            break;
+                        case BOUNDS_POSITION_BOTTOM:
+                            height -= (int) Math.floor(protectionRect.top);
+                            break;
+                        case BOUNDS_POSITION_RIGHT:
+                            width -= (int) Math.floor(protectionRect.left);
+                            break;
+                    }
+                    setMeasuredDimension(resolveSizeAndState(width, widthMeasureSpec, 0),
+                            resolveSizeAndState(height, heightMeasureSpec, 0));
+                } else {
+                    super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                }
                 return;
             }
 
@@ -1539,6 +1584,21 @@ public class ScreenDecorations implements
         private void localBounds(Rect out) {
             DisplayCutout displayCutout = displayInfo.displayCutout;
             boundsFromDirection(displayCutout, getGravity(displayCutout), out);
+        }
+
+        private int gravityForPosition() {
+            switch (mPosition) {
+                case BOUNDS_POSITION_LEFT:
+                    return Gravity.LEFT;
+                case BOUNDS_POSITION_TOP:
+                    return Gravity.TOP;
+                case BOUNDS_POSITION_RIGHT:
+                    return Gravity.RIGHT;
+                case BOUNDS_POSITION_BOTTOM:
+                    return Gravity.BOTTOM;
+                default:
+                    return Gravity.NO_GRAVITY;
+            }
         }
 
         private int getGravity(DisplayCutout displayCutout) {

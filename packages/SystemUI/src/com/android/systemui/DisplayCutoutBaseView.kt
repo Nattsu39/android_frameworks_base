@@ -37,6 +37,7 @@ import android.view.View
 import androidx.annotation.VisibleForTesting
 import com.android.systemui.RegionInterceptingFrameLayout.RegionInterceptableView
 import com.android.app.animation.Interpolators
+import com.android.systemui.res.R
 import com.android.systemui.util.asIndenting
 import java.io.PrintWriter
 
@@ -134,14 +135,13 @@ open class DisplayCutoutBaseView : View, RegionInterceptableView {
     @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     public override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (!shouldDrawCutout) {
-            return
-        }
         canvas.save()
         getLocationOnScreen(location)
         canvas.translate(-location[0].toFloat(), -location[1].toFloat())
 
-        drawCutouts(canvas)
+        if (shouldDrawCutout) {
+            drawCutouts(canvas)
+        }
         drawCutoutProtection(canvas)
         canvas.restore()
     }
@@ -221,15 +221,25 @@ open class DisplayCutoutBaseView : View, RegionInterceptableView {
             requestLayout()
         }
         cameraProtectionAnimator?.cancel()
+        val duration = resources.getInteger(R.integer.config_cameraProtectionAnimationDuration)
+        if (duration <= 0) {
+            cameraProtectionAnimator = null
+            cameraProtectionProgress = if (showProtection) 1f else HIDDEN_CAMERA_PROTECTION_SCALE
+            requestLayout()
+            invalidate()
+            onUpdate()
+            return
+        }
         cameraProtectionAnimator = ValueAnimator.ofFloat(
             cameraProtectionProgress,
             if (showProtection) 1.0f else HIDDEN_CAMERA_PROTECTION_SCALE
-        ).setDuration(750)
+        ).setDuration(duration.toLong())
         cameraProtectionAnimator?.interpolator = Interpolators.DECELERATE_QUINT
         cameraProtectionAnimator?.addUpdateListener(
             ValueAnimator.AnimatorUpdateListener { animation: ValueAnimator ->
                 cameraProtectionProgress = animation.animatedValue as Float
                 invalidate()
+                onUpdate()
             }
         )
         cameraProtectionAnimator?.addListener(object : AnimatorListenerAdapter() {
@@ -238,6 +248,7 @@ open class DisplayCutoutBaseView : View, RegionInterceptableView {
                 if (!showProtection) {
                     requestLayout()
                 }
+                onUpdate()
             }
         })
         cameraProtectionAnimator?.start()
@@ -250,6 +261,12 @@ open class DisplayCutoutBaseView : View, RegionInterceptableView {
         protectionRectOrig.setEmpty()
         protectionRectOrig.set(pathBounds)
         protectionRect.setEmpty()
+        if (showProtection) {
+            updateProtectionBoundingPath()
+            requestLayout()
+            invalidate()
+            onUpdate()
+        }
     }
 
     protected open fun updateProtectionBoundingPath() {
