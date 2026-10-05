@@ -368,6 +368,9 @@
   <java-symbol type="bool" name="config_fold_lock_behavior" />
   <java-symbol type="bool" name="config_enableWifiDisplay" />
   <java-symbol type="bool" name="config_enableDefaultHdrConversionPassthrough" />
+  <java-symbol type="bool" name="config_supportSoftwareDcDimming" />
+  <java-symbol type="array" name="config_softwareDcDimmingBrightness" />
+  <java-symbol type="array" name="config_softwareDcDimmingScale" />
   <java-symbol type="bool" name="config_allowAnimationsInLowPowerMode" />
   <java-symbol type="bool" name="config_useDevInputEventForAudioJack" />
   <java-symbol type="bool" name="config_safe_media_volume_enabled" />

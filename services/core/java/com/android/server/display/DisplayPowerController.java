@@ -284,6 +284,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
 
     // The display blanker.
     private final DisplayBlanker mBlanker;
+    private final boolean mUseStockHdrTransitions;
 
     // The LogicalDisplay tied to this DisplayPowerController.
     private final LogicalDisplay mLogicalDisplay;
@@ -588,6 +589,8 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         mWindowManagerPolicy = LocalServices.getService(WindowManagerPolicy.class);
         mBlanker = blanker;
         mContext = context;
+        mUseStockHdrTransitions = mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_supportSoftwareDcDimming);
         mBrightnessTracker = brightnessTracker;
         mOnBrightnessChangeRunnable = onBrightnessChangeRunnable;
 
@@ -1380,6 +1383,11 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
                 mPowerRequest, mIsEnabled, mIsInTransition);
         int state = displayState.state();
 
+        // Publish DOZE policy before a pulse can request ON with its previous brightness.
+        mBlanker.setBrightnessConstraints(mDisplayId, mPowerRequest.policy,
+                Math.min(mBrightnessRangeController.getCurrentBrightnessMax(),
+                        mBrightnessClamperController.getMaxBrightness()));
+
         // Initialize things the first time the power state is changed.
         if (mustInitialize) {
             initialize(readyToUpdateDisplayState() ? state : Display.STATE_UNKNOWN);
@@ -1619,6 +1627,9 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
                 displayBrightnessState, mPowerRequest,
                 brightnessState, slowChange, /* displayState= */ state);
         brightnessState = clampedState.getBrightness();
+        mBlanker.setBrightnessConstraints(mDisplayId, mPowerRequest.policy,
+                Math.min(mBrightnessRangeController.getCurrentBrightnessMax(),
+                        clampedState.getMaxBrightness()));
         slowChange = clampedState.isSlowChange();
         // faster rate wins, at this point customAnimationRate == -1, strategy does not control
         // customAnimationRate. Should be revisited if strategy start setting this value
@@ -1739,7 +1750,9 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
                     && (animateValue != currentBrightness
                     || sdrAnimateValue != currentSdrBrightness)) {
                 boolean skipAnimation = initialRampSkip || hasBrightnessBuckets
-                        || !isDisplayContentVisible || brightnessIsTemporary;
+                        || !isDisplayContentVisible || brightnessIsTemporary
+                        || (mUseStockHdrTransitions && DcDimmingController.shouldSkipHdrRamp(
+                                mBrightnessReasonTemp.getModifier(), mBrightnessReason.getModifier()));
                 final boolean isHdrOnlyChange = BrightnessSynchronizer.floatEquals(
                         sdrAnimateValue, currentSdrBrightness);
                 if (mFlags.isFastHdrTransitionsEnabled() && !skipAnimation && isHdrOnlyChange) {

@@ -63,6 +63,8 @@ public class DisplayTransformManager {
      * Color transform level used by A11y services to reduce bright colors.
      */
     public static final int LEVEL_COLOR_MATRIX_REDUCE_BRIGHT_COLORS = 250;
+    /** Color transform level used to compensate a calibrated software DC brightness floor. */
+    public static final int LEVEL_COLOR_MATRIX_DC_DIMMING = 290;
     /**
      * Color transform level used by A11y services to invert the display colors.
      */

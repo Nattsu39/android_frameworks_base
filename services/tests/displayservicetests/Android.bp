@@ -98,6 +98,32 @@ android_test {
     },
 }
 
+// DC dimming regressions run with fake settings and a mocked color service.
+android_test {
+    name: "DcDimmingTests",
+    manifest: "AndroidManifestDcDimmingTests.xml",
+    defaults: ["modules-utils-extended-mockito-rule-defaults"],
+    srcs: [
+        "src/com/android/server/display/DcDimmingCurveTest.java",
+        "src/com/android/server/display/DcDimmingControllerTest.java",
+    ],
+    resource_dirs: [],
+    asset_dirs: [],
+    libs: ["android.test.mock.stubs.system", "android.test.runner.stubs.system"],
+    static_libs: [
+        "androidx.test.core",
+        "androidx.test.runner",
+        "frameworks-base-testutils",
+        "junit",
+        "mockingservicestests-utils-mockito",
+        "services.core",
+    ],
+    platform_apis: true,
+    certificate: "platform",
+    test_suites: ["device-tests"],
+    optimize: { enabled: false },
+}
+
 test_module_config {
     name: "DisplayServiceTests_server_display",
     base: "DisplayServiceTests",

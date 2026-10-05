@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        package="com.android.frameworks.dcdimmingtests">
+    <application android:testOnly="true" android:debuggable="true">
+        <uses-library android:name="android.test.mock" android:required="true" />
+        <uses-library android:name="android.test.runner" />
+    </application>
+    <instrumentation android:name="androidx.test.runner.AndroidJUnitRunner"
+            android:targetPackage="com.android.frameworks.dcdimmingtests"
+            android:label="DC Dimming Tests" />
+</manifest>

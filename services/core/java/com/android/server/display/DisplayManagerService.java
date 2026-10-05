@@ -402,8 +402,17 @@ public final class DisplayManagerService extends SystemService {
 
     private int mMaxImportanceForRRCallbacks = IMPORTANCE_VISIBLE;
 
+    private final DcDimmingController mDcDimmingController;
+
     /** {@link DisplayBlanker} used by all {@link DisplayPowerController}s. */
     private final DisplayBlanker mDisplayBlanker = new DisplayBlanker() {
+        @Override
+        public void setBrightnessConstraints(int displayId, int policy, float maximumBrightness) {
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                mDcDimmingController.setBrightnessConstraints(policy, maximumBrightness);
+            }
+        }
+
         // Synchronized to avoid race conditions when updating multiple display states.
         @Override
         public synchronized void requestDisplayState(int displayId, int state, float brightness,
@@ -438,6 +447,9 @@ public final class DisplayManagerService extends SystemService {
 
             // The order of operations is important for legacy reasons.
             if (state == Display.STATE_OFF) {
+                if (displayId == Display.DEFAULT_DISPLAY && stateChanged) {
+                    mDcDimmingController.onScreenOff();
+                }
                 requestDisplayStateInternal(displayId, state, brightness, sdrBrightness);
             }
 
@@ -656,6 +668,7 @@ public final class DisplayManagerService extends SystemService {
         mContext = context;
         mFlags = injector.getFlags();
         mHandler = new DisplayManagerHandler(displayThreadLooper);
+        mDcDimmingController = new DcDimmingController(context, mHandler, this::reapplyDcDimming);
         mHandlerExecutor = new HandlerExecutor(mHandler);
         mUiHandler = UiThread.getHandler();
         mPersistentDataStore = mInjector.getPersistentDataStore();
@@ -779,6 +792,11 @@ public final class DisplayManagerService extends SystemService {
                 }
             }
         } else if (phase == PHASE_BOOT_COMPLETED) {
+            final int currentUserId;
+            synchronized (mSyncRoot) {
+                currentUserId = mCurrentUserId;
+            }
+            mDcDimmingController.onBootCompleted(currentUserId);
             synchronized (mSyncRoot) {
                 mBootCompleted = true;
                 for (int i = 0; i < mDisplayPowerControllers.size(); i++) {
@@ -802,6 +820,7 @@ public final class DisplayManagerService extends SystemService {
     public void onUserSwitching(@Nullable TargetUser from, @NonNull TargetUser to) {
         final int newUserId = to.getUserIdentifier();
         final int userSerial = getUserManager().getUserSerialNumber(newUserId);
+        mDcDimmingController.onUserSwitching(newUserId);
         synchronized (mSyncRoot) {
             boolean userSwitching = mCurrentUserId != newUserId;
             if (userSwitching) {
@@ -1108,6 +1127,16 @@ public final class DisplayManagerService extends SystemService {
         return brightnessState;
     }
 
+    private void reapplyDcDimming() {
+        synchronized (mDisplayBlanker) {
+            final DcDimmingController.Request request = mDcDimmingController.getLastRequest();
+            if (request != null) {
+                mDisplayBlanker.requestDisplayState(Display.DEFAULT_DISPLAY, request.state,
+                        request.brightness, request.sdrBrightness);
+            }
+        }
+    }
+
     private void requestDisplayStateInternal(int displayId, int state, float brightnessState,
             float sdrBrightnessState) {
         if (state == Display.STATE_UNKNOWN) {
@@ -1122,16 +1151,28 @@ public final class DisplayManagerService extends SystemService {
         // may happen as a side-effect of displays changing state.
         final Runnable runnable;
         final String traceMessage;
+        final DcDimmingCurve.Result dcResult;
         synchronized (mSyncRoot) {
             final int index = mDisplayStates.indexOfKey(displayId);
-
-            final BrightnessPair brightnessPair =
-                    index < 0 ? null : mDisplayBrightnesses.valueAt(index);
-            if (index < 0 || (mDisplayStates.valueAt(index) == state
-                    && brightnessPair.brightness == brightnessState
-                    && brightnessPair.sdrBrightness == sdrBrightnessState)) {
-                return; // Display no longer exists or no change.
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+            if (index < 0 || display == null
+                    || (!display.isEnabledLocked() && state != Display.STATE_OFF)) {
+                return;
             }
+
+            dcResult = displayId == Display.DEFAULT_DISPLAY
+                    && display.getDisplayInfoLocked().type == Display.TYPE_INTERNAL
+                    && mDcDimmingController.isSupported()
+                    ? mDcDimmingController.calculate(state, brightnessState, sdrBrightnessState)
+                    : null;
+            if (dcResult != null) {
+                brightnessState = dcResult.brightness;
+                sdrBrightnessState = dcResult.sdrBrightness;
+            }
+            final BrightnessPair brightnessPair = mDisplayBrightnesses.valueAt(index);
+            final boolean changed = mDisplayStates.valueAt(index) != state
+                    || brightnessPair.brightness != brightnessState
+                    || brightnessPair.sdrBrightness != sdrBrightnessState;
 
             if (Trace.isTagEnabled(Trace.TRACE_TAG_POWER)) {
                 traceMessage = Display.stateToString(state)
@@ -1145,14 +1186,8 @@ public final class DisplayManagerService extends SystemService {
             mDisplayStates.setValueAt(index, state);
             brightnessPair.brightness = brightnessState;
             brightnessPair.sdrBrightness = sdrBrightnessState;
-            // TODO(b/297503094) Preventing disabled display from being turned on should happen
-            // elsewhere.
-            LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
-            if (!display.isEnabledLocked() && state != Display.STATE_OFF) {
-                // If the display is disabled, any request other than turning it off should fail.
-                return;
-            }
-            runnable = updateDisplayStateLocked(display.getPrimaryDisplayDeviceLocked());
+            runnable = changed
+                    ? updateDisplayStateLocked(display.getPrimaryDisplayDeviceLocked()) : null;
             if (Trace.isTagEnabled(Trace.TRACE_TAG_POWER)) {
                 Trace.asyncTraceForTrackEnd(Trace.TRACE_TAG_POWER,
                         "requestDisplayStateInternal:" + displayId, displayId);
@@ -1163,8 +1198,16 @@ public final class DisplayManagerService extends SystemService {
         // to complete so we defer the most expensive part of the work until
         // after we have exited the critical section to avoid blocking other
         // threads for a long time.
+        // A matrix change still matters when both physical brightness values stay at the floor.
+        // Clear the matrix after OFF so an illuminated panel is not briefly uncompensated.
+        if (dcResult != null && state != Display.STATE_OFF) {
+            mDcDimmingController.apply(dcResult);
+        }
         if (runnable != null) {
             runnable.run();
+        }
+        if (dcResult != null && state == Display.STATE_OFF) {
+            mDcDimmingController.apply(dcResult);
         }
     }
 
@@ -3883,6 +3926,7 @@ public final class DisplayManagerService extends SystemService {
 
     private void dumpInternal(PrintWriter pw) {
         pw.println("DISPLAY MANAGER (dumpsys display)");
+        mDcDimmingController.dump(pw);
         BrightnessTracker brightnessTrackerLocal;
         SparseArray<DisplayPowerController> displayPowerControllersLocal = new SparseArray<>();
         int displayPowerControllerCount;
