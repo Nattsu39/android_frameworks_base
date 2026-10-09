@@ -482,6 +482,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     // The controller for the automatic brightness level.
     @Nullable
     private AutomaticBrightnessController mAutomaticBrightnessController;
+    private AlsContentController mAlsContentController;
 
     // The controller for the sensor used to estimate ambient lux while the display is off.
     @Nullable
@@ -690,6 +691,11 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         }
 
         setUpAutoBrightness(context, handler);
+
+        if (mDisplayId == Display.DEFAULT_DISPLAY
+                && SystemProperties.getBoolean("ro.nx809j.als_content_compensation", false)) {
+            mAlsContentController = new AlsContentController(context, mSensorManager, mHandler);
+        }
 
         mColorFadeEnabled = mInjector.isColorFadeEnabled()
                 && !resources.getBoolean(
@@ -1074,6 +1080,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     }
 
     private void setUpAutoBrightness(Context context, Handler handler) {
+        if (mAlsContentController != null) mAlsContentController.setEnabled(false);
         mUseSoftwareAutoBrightnessConfig = mDisplayDeviceConfig.isAutoBrightnessAvailable();
 
         if (!mUseSoftwareAutoBrightnessConfig) {
@@ -1952,6 +1959,12 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         // Record if dozing for future comparison.
         mDozing = state != Display.STATE_ON;
 
+        if (mAlsContentController != null) {
+            mAlsContentController.setEnabled(state == Display.STATE_ON
+                    && mAutomaticBrightnessController != null
+                    && mAutomaticBrightnessController.isLightSensorEnabled());
+        }
+
         if (previousPolicy != mPowerRequest.policy) {
             logDisplayPolicyChanged(mPowerRequest.policy);
         }
@@ -2796,6 +2809,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
             dumpBrightnessEvents(pw);
         }
         dumpRbcEvents(pw);
+        if (mAlsContentController != null) mAlsContentController.dump(pw);
 
         pw.println();
         if (mScreenOffBrightnessSensorController != null) {
@@ -3213,6 +3227,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
                     break;
 
                 case MSG_STOP:
+                    if (mAlsContentController != null) mAlsContentController.stop();
                     cleanupHandlerThreadAfterStop();
                     break;
 

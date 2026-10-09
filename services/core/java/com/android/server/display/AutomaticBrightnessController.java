@@ -450,6 +450,11 @@ public class AutomaticBrightnessController {
         return mAmbientLuxValid;
     }
 
+    /** Actual light-sensor subscription state, including display strategy and power policy. */
+    boolean isLightSensorEnabled() {
+        return mLightSensorEnabled;
+    }
+
     public float getAutomaticScreenBrightnessAdjustment() {
         return mCurrentBrightnessMapper.getAutoBrightnessAdjustment();
     }
