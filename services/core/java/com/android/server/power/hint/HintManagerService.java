@@ -327,12 +327,15 @@ public final class HintManagerService extends SystemService {
         mPowerHalVersion = 0;
         mVendorApiLevel = Integer.parseInt(SystemProperties.get(PROPERTY_VENDOR_API_LEVEL, ""));
         mUsesFmq = false;
-        if (mPowerHal != null) {
-            try {
-                mSupportInfo = getSupportInfo();
-            } catch (RemoteException e) {
-                throw new IllegalStateException("Could not contact PowerHAL!", e);
-            }
+        // NX809J: always resolve SupportInfo (getSupportInfo() is null-safe and returns a
+        // complete default when the vendor power HAL is absent/older/incomplete). The stock
+        // ZTE power HAL doesn't register IPower with a usable getSupportInfo(), so the old
+        // `if (mPowerHal != null)` guard left mSupportInfo null -> NPE below -> system_server
+        // crash-loop -> boot hang.
+        try {
+            mSupportInfo = getSupportInfo();
+        } catch (RemoteException e) {
+            throw new IllegalStateException("Could not contact PowerHAL!", e);
         }
         if (mSupportInfo.headroom.isCpuSupported) {
             mCpuHeadroomCache = new HeadroomCache<>(2, mSupportInfo.headroom.cpuMinIntervalMillis);
@@ -366,9 +369,18 @@ public final class HintManagerService extends SystemService {
 
     SupportInfo getSupportInfo() throws RemoteException {
         try {
-            mPowerHalVersion = mPowerHal.getInterfaceVersion();
-            if (mPowerHalVersion >= 6) {
-                return mPowerHal.getSupportInfo();
+            if (mPowerHal != null) {
+                mPowerHalVersion = mPowerHal.getInterfaceVersion();
+                if (mPowerHalVersion >= 6) {
+                    SupportInfo halInfo = mPowerHal.getSupportInfo();
+                    // NX809J: the stock vendor power HAL can report v>=6 yet return a
+                    // null / headroom-less SupportInfo -> HintManagerService NPE at init
+                    // -> system_server crash-loop. Fall through to the safe default below
+                    // instead of propagating the incomplete object.
+                    if (halInfo != null && halInfo.headroom != null) {
+                        return halInfo;
+                    }
+                }
             }
         } catch (RemoteException e) {
             throw new IllegalStateException("Could not contact PowerHAL!", e);
