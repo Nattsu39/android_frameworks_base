@@ -237,11 +237,10 @@ private constructor(
         if (includeHierarchy) {
             var flagEnabled: Boolean? = null
             factory.parameters(context).collect {
-                val enabled = flagEnabled
-                if (enabled == false) return@collect
+                if (flagEnabled == false) return@collect
                 val screenMetadata = factory.create(context, it)
-                if (enabled == null) flagEnabled = checkScreenFlag(screenMetadata)
-                if (flagEnabled == true) addPreferenceScreen(screenMetadata)
+                if (flagEnabled == null) flagEnabled = checkScreenFlag(screenMetadata)
+                if (flagEnabled) addPreferenceScreen(screenMetadata)
             }
         }
         return true
