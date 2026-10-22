@@ -20,8 +20,12 @@ package com.android.server.display;
  * Interface used to update the actual display state.
  */
 public interface DisplayBlanker {
-    /** Updates policy and the maximum physical brightness allowed by brightness protection. */
-    default void setBrightnessConstraints(int displayId, int policy, float maximumBrightness) {}
+    /**
+     * Updates the requested policy, target display state, and brightness protection limit.
+     * The target may differ from the actual state while a screen-off animation is visible.
+     */
+    default void setBrightnessConstraints(int displayId, int policy, int targetState,
+            float maximumBrightness) {}
 
     /**
      * Requests the specified display state and brightness levels for the specified displayId.

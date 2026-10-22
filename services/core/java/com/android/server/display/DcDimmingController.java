@@ -59,6 +59,8 @@ final class DcDimmingController {
     private boolean mRequested;
     private boolean mApplied;
     private int mPolicy = DisplayPowerRequest.POLICY_OFF;
+    private int mTargetState = Display.STATE_UNKNOWN;
+    private boolean mNormalScreenOnSession;
     private float mMaximumBrightness = 1f;
     private Request mLastRequest;
     private DcDimmingCurve.Result mLastResult;
@@ -158,13 +160,15 @@ final class DcDimmingController {
         }
     }
 
-    void setBrightnessConstraints(int policy, float maximumBrightness) {
+    void setBrightnessConstraints(int policy, int targetState, float maximumBrightness) {
         if (!isSupported()) {
             return;
         }
         synchronized (mLock) {
-            if (mPolicy != policy || Float.compare(mMaximumBrightness, maximumBrightness) != 0) {
+            if (mPolicy != policy || mTargetState != targetState
+                    || Float.compare(mMaximumBrightness, maximumBrightness) != 0) {
                 mPolicy = policy;
+                mTargetState = targetState;
                 mMaximumBrightness = maximumBrightness;
                 scheduleReapplyLocked();
             }
@@ -187,10 +191,19 @@ final class DcDimmingController {
     DcDimmingCurve.Result calculate(int state, float brightness, float sdrBrightness) {
         synchronized (mLock) {
             mLastRequest = new Request(state, brightness, sdrBrightness);
-            final boolean allowed = mStarted && mApplied && mTransformManager != null
-                    && state == Display.STATE_ON
+            // OFF is a target, not proof that ColorFade has finished. Keep an existing
+            // normal ON session compensated until the blanker actually turns it off.
+            // A DOZE pulse targets ON without a normal policy and must not start or
+            // inherit that session. Re-evaluate the protection cap on every request.
+            final boolean normalScreenOn = mTargetState == Display.STATE_ON
                     && (mPolicy == DisplayPowerRequest.POLICY_BRIGHT
                     || mPolicy == DisplayPowerRequest.POLICY_DIM);
+            final boolean finishingScreenOff = mTargetState == Display.STATE_OFF
+                    && mNormalScreenOnSession;
+            mNormalScreenOnSession = state == Display.STATE_ON
+                    && (normalScreenOn || finishingScreenOff);
+            final boolean allowed = mStarted && mApplied && mTransformManager != null
+                    && mNormalScreenOnSession;
             mLastResult = mCurve.transform(allowed, mMaximumBrightness, brightness, sdrBrightness);
             return mLastResult;
         }
@@ -240,6 +253,8 @@ final class DcDimmingController {
                     + ", pending=" + (mRequested != mApplied));
             pw.println("    policy=" + mPolicy + ", maximumBrightness=" + mMaximumBrightness
                     + ", floor=" + (mCurve == null ? Float.NaN : mCurve.getBrightnessFloor()));
+            pw.println("    targetState=" + Display.stateToString(mTargetState)
+                    + ", normalScreenOnSession=" + mNormalScreenOnSession);
             if (mLastRequest != null && mLastResult != null) {
                 pw.println("    state=" + Display.stateToString(mLastRequest.state)
                         + ", mainRequest=" + mLastRequest.brightness

@@ -1392,6 +1392,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
 
         // Publish DOZE policy before a pulse can request ON with its previous brightness.
         mBlanker.setBrightnessConstraints(mDisplayId, mPowerRequest.policy,
+                displayState.state(),
                 Math.min(mBrightnessRangeController.getCurrentBrightnessMax(),
                         mBrightnessClamperController.getMaxBrightness()));
 
@@ -1635,6 +1636,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
                 brightnessState, slowChange, /* displayState= */ state);
         brightnessState = clampedState.getBrightness();
         mBlanker.setBrightnessConstraints(mDisplayId, mPowerRequest.policy,
+                displayState.state(),
                 Math.min(mBrightnessRangeController.getCurrentBrightnessMax(),
                         clampedState.getMaxBrightness()));
         slowChange = clampedState.isSlowChange();

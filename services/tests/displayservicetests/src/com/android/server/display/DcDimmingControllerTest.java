@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -58,7 +59,7 @@ public class DcDimmingControllerTest {
         mServicesRule.overrideLocalService(DisplayTransformManager.class, mTransformManager);
         mController = new DcDimmingController(context, new Handler(mLooper.getLooper()), mReapply,
                 new DcDimmingCurve(DcDimmingCurveTest.BRIGHTNESS, DcDimmingCurveTest.SCALE));
-        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_BRIGHT, 1f);
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_BRIGHT, Display.STATE_ON, 1f);
     }
 
     @Test
@@ -87,6 +88,186 @@ public class DcDimmingControllerTest {
     }
 
     @Test
+    public void screenOffPolicyRetainsDimmingUntilActualOff() {
+        startEnabled();
+        DcDimmingCurve.Result visible = mController.calculate(Display.STATE_ON, 0.1f, 0.0824f);
+        mController.apply(visible);
+        doAnswer(invocation -> {
+            DcDimmingController.Request latest = mController.getLastRequest();
+            mController.apply(mController.calculate(
+                    latest.state, latest.brightness, latest.sdrBrightness));
+            return null;
+        }).when(mReapply).run();
+
+        // DPC publishes the OFF policy before ColorFade finishes. DMS then replays
+        // the last ON request, even though neither requested brightness changed.
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        mLooper.dispatchAll();
+        DcDimmingController.Request request = mController.getLastRequest();
+        DcDimmingCurve.Result fading = mController.calculate(
+                request.state, request.brightness, request.sdrBrightness);
+        assertEquals(visible.brightness, fading.brightness, 0f);
+        assertEquals(visible.sdrBrightness, fading.sdrBrightness, 0f);
+        assertEquals(visible.scale, fading.scale, 0f);
+        ArgumentCaptor<float[]> matrices = ArgumentCaptor.forClass(float[].class);
+        verify(mTransformManager, org.mockito.Mockito.times(2)).setColorMatrix(
+                org.mockito.ArgumentMatchers.eq(290), matrices.capture());
+        for (float[] matrix : matrices.getAllValues()) {
+            assertEquals(visible.scale, matrix[0], 0f);
+        }
+
+        mController.onScreenOff();
+        DcDimmingCurve.Result off = mController.calculate(Display.STATE_OFF, -1f, -1f);
+        assertEquals(-1f, off.brightness, 0f);
+        assertEquals(-1f, off.sdrBrightness, 0f);
+        assertEquals(1f, off.scale, 0f);
+        mController.apply(off);
+        verify(mTransformManager).setColorMatrix(290, null);
+    }
+
+    @Test
+    public void dimmedScreenRetainsCompensationDuringScreenOff() {
+        startEnabled();
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_DIM, Display.STATE_ON, 1f);
+        DcDimmingCurve.Result visible = calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        DcDimmingCurve.Result fading = calculate(Display.STATE_ON);
+        assertEquals(visible.brightness, fading.brightness, 0f);
+        assertEquals(visible.scale, fading.scale, 0f);
+    }
+
+    @Test
+    public void screenOffTargetWithoutNormalSessionDoesNotLiftBrightness() {
+        startEnabled();
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
+        assertEquals(1f, calculate(Display.STATE_ON).scale, 0f);
+    }
+
+    @Test
+    public void actualOffEndsSessionBeforeAnotherOnRequest() {
+        startEnabled();
+        calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        mController.onScreenOff();
+        mController.calculate(Display.STATE_OFF, -1f, -1f);
+        assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
+        assertEquals(1f, calculate(Display.STATE_ON).scale, 0f);
+    }
+
+    @Test
+    public void dozePolicyKeepsFadingSessionOnlyWhileTargetIsOff() {
+        startEnabled();
+        DcDimmingCurve.Result visible = calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_DOZE, Display.STATE_OFF, 1f);
+        assertEquals(visible.scale, calculate(Display.STATE_ON).scale, 0f);
+
+        // Same policy, different target: a pulse must cancel the retained session.
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_DOZE, Display.STATE_ON, 1f);
+        assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
+        assertEquals(1f, calculate(Display.STATE_ON).scale, 0f);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_DOZE, Display.STATE_OFF, 1f);
+        assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
+    }
+
+    @Test
+    public void targetChangeSchedulesReplayWithoutPolicyOrBrightnessChange() {
+        startEnabled();
+        calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_DOZE, Display.STATE_OFF, 1f);
+        mLooper.dispatchAll();
+        verify(mReapply).run();
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_DOZE, Display.STATE_ON, 1f);
+        mLooper.dispatchAll();
+        verify(mReapply, org.mockito.Mockito.times(2)).run();
+    }
+
+    @Test
+    public void wakingDuringFadeStartsNormalSessionWithLatestBrightness() {
+        startEnabled();
+        calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_BRIGHT, Display.STATE_ON, 1f);
+        DcDimmingCurve.Result awake = mController.calculate(Display.STATE_ON, 0.6f, 0.6f);
+        mLooper.dispatchAll();
+        DcDimmingController.Request request = mController.getLastRequest();
+        assertEquals(0.6f, request.brightness, 0f);
+        assertEquals(0.6f, awake.brightness, 0f);
+        assertEquals(1f, awake.scale, 0f);
+    }
+
+    @Test
+    public void protectionCapStillAppliesDuringFade() {
+        startEnabled();
+        DcDimmingCurve.Result visible = calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 0.2f);
+        assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
+        assertEquals(1f, calculate(Display.STATE_ON).scale, 0f);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        assertEquals(visible.brightness, calculate(Display.STATE_ON).brightness, 0f);
+        assertEquals(visible.scale, calculate(Display.STATE_ON).scale, 0f);
+    }
+
+    @Test
+    public void disabledSettingWaitsForActualOffDuringFade() {
+        startEnabled();
+        DcDimmingCurve.Result visible = calculate(Display.STATE_ON);
+        setRequested(false);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        assertEquals(visible.scale, calculate(Display.STATE_ON).scale, 0f);
+        assertEquals(1, appliedSetting());
+        mController.onScreenOff();
+        mController.calculate(Display.STATE_OFF, -1f, -1f);
+        assertEquals(0, appliedSetting());
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_BRIGHT, Display.STATE_ON, 1f);
+        assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
+    }
+
+    @Test
+    public void hdrMainAndSdrFloorStayPairedDuringFade() {
+        startEnabled();
+        DcDimmingCurve.Result visible = mController.calculate(Display.STATE_ON, 0.6f, 0.1f);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        DcDimmingCurve.Result fading = mController.calculate(Display.STATE_ON, 0.6f, 0.1f);
+        assertEquals(0.6f, fading.brightness, 0f);
+        assertEquals(visible.sdrBrightness, fading.sdrBrightness, 0f);
+        assertEquals(0.33f, fading.sdrBrightness, 0f);
+        assertEquals(1f, fading.scale, 0f);
+    }
+
+    @Test
+    public void invalidBrightnessIsNotLiftedDuringFade() {
+        startEnabled();
+        calculate(Display.STATE_ON);
+        mController.setBrightnessConstraints(
+                DisplayPowerRequest.POLICY_OFF, Display.STATE_OFF, 1f);
+        for (float brightness : new float[] {-1f, Float.NaN}) {
+            DcDimmingCurve.Result result = mController.calculate(
+                    Display.STATE_ON, brightness, brightness);
+            assertEquals(brightness, result.brightness, 0f);
+            assertEquals(brightness, result.sdrBrightness, 0f);
+            assertEquals(1f, result.scale, 0f);
+        }
+    }
+
+    @Test
     public void dozeAndSuspendedStatesNeverLiftBrightness() {
         startEnabled();
         for (int state : new int[] {Display.STATE_OFF, Display.STATE_DOZE,
@@ -99,10 +280,10 @@ public class DcDimmingControllerTest {
     @Test
     public void onPulseUnderDozePolicyBypassesDimming() {
         startEnabled();
-        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_DOZE, 1f);
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_DOZE, Display.STATE_ON, 1f);
         assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
         assertEquals(1, appliedSetting());
-        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_BRIGHT, 1f);
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_BRIGHT, Display.STATE_ON, 1f);
         assertEquals(0.33f, calculate(Display.STATE_ON).brightness, 0f);
     }
 
@@ -110,7 +291,7 @@ public class DcDimmingControllerTest {
     public void capChangeBypassesAndRequestsRecalculation() {
         startEnabled();
         mLooper.dispatchAll();
-        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_BRIGHT, 0.2f);
+        mController.setBrightnessConstraints(DisplayPowerRequest.POLICY_BRIGHT, Display.STATE_ON, 0.2f);
         assertEquals(0.1f, calculate(Display.STATE_ON).brightness, 0f);
         mLooper.dispatchAll();
         verify(mReapply, org.mockito.Mockito.times(2)).run();

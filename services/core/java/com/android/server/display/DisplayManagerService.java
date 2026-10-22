@@ -407,9 +407,10 @@ public final class DisplayManagerService extends SystemService {
     /** {@link DisplayBlanker} used by all {@link DisplayPowerController}s. */
     private final DisplayBlanker mDisplayBlanker = new DisplayBlanker() {
         @Override
-        public void setBrightnessConstraints(int displayId, int policy, float maximumBrightness) {
+        public void setBrightnessConstraints(int displayId, int policy, int targetState,
+                float maximumBrightness) {
             if (displayId == Display.DEFAULT_DISPLAY) {
-                mDcDimmingController.setBrightnessConstraints(policy, maximumBrightness);
+                mDcDimmingController.setBrightnessConstraints(policy, targetState, maximumBrightness);
             }
         }
 
