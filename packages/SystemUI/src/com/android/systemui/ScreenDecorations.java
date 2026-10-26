@@ -81,6 +81,7 @@ import com.android.systemui.decor.PrivacyDotDecorProviderFactory;
 import com.android.systemui.decor.RoundedCornerDecorProviderFactory;
 import com.android.systemui.decor.RoundedCornerResDelegateImpl;
 import com.android.systemui.decor.ScreenDecorCommand;
+import com.android.systemui.decor.UdcColorCalibration;
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor;
 import com.android.systemui.log.ScreenDecorationsLogger;
 import com.android.systemui.qs.UserSettingObserver;
@@ -144,6 +145,7 @@ public class ScreenDecorations implements
     @VisibleForTesting
     DisplayTracker.Callback mDisplayListener;
     private CameraAvailabilityListener mCameraListener;
+    private UdcColorCalibration mUdcColorCalibration;
     private final UserTracker mUserTracker;
     private final PrivacyDotViewController mDotViewController;
     private final DecorProviderFactory mDotFactory;
@@ -191,6 +193,7 @@ public class ScreenDecorations implements
 
     @VisibleForTesting
     protected void showCameraProtection(@NonNull Path protectionPath, @NonNull Rect bounds) {
+        if (mUdcColorCalibration != null) mUdcColorCalibration.setCameraActive(true);
         if (mDebug || mFaceScanningFactory.shouldShowFaceScanningAnim()) {
             DisplayCutoutView overlay = (DisplayCutoutView) getOverlayView(
                     mFaceScanningViewId);
@@ -233,6 +236,7 @@ public class ScreenDecorations implements
 
     @VisibleForTesting
     protected void hideCameraProtection() {
+        if (mUdcColorCalibration != null) mUdcColorCalibration.setCameraActive(false);
         FaceScanningOverlay faceScanningOverlay =
                 (FaceScanningOverlay) getOverlayView(mFaceScanningViewId);
         if (faceScanningOverlay != null) {
@@ -513,7 +517,13 @@ public class ScreenDecorations implements
         mHwcScreenDecorationSupport = mContext.getDisplay().getDisplayDecorationSupport();
         updateHwLayerRoundedCornerDrawable();
         setupDecorations();
+        if (mUdcColorCalibration == null) {
+            mUdcColorCalibration = new UdcColorCalibration(
+                    mContext, mHandler, mUserTracker);
+        }
         setupCameraListener();
+        // Restore any existing camera session before exposing a saved color overlay.
+        mUdcColorCalibration.start();
 
         mDisplayListener = new DisplayTracker.Callback() {
             @Override
@@ -1144,6 +1154,7 @@ public class ScreenDecorations implements
     @NeverCompile
     @Override
     public void dump(@NonNull PrintWriter pw, @NonNull String[] args) {
+        if (mUdcColorCalibration != null) mUdcColorCalibration.dump(pw);
         pw.println("ScreenDecorations state:");
         IndentingPrintWriter ipw = asIndenting(pw);
         ipw.increaseIndent();

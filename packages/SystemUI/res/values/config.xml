@@ -1196,4 +1196,6 @@
     <!-- Optional four-bar LTE/NR display curve. Strongest first; values use
          strict RSRP > threshold comparison. Empty keeps standard signal levels. -->
     <integer-array name="config_mobileSignalStrengthRsrpThresholds" />
+    <!-- Natural panel width, height, UDC center x/y and radius; empty disables calibration. -->
+    <integer-array name="config_udcColorCalibrationGeometry" />
 </resources>
